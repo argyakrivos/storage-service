@@ -1,26 +1,27 @@
-package com.blinkbox.books.marvin
+import org.scalatest.{FlatSpec, Matchers}
 
-import com.blinkbox.books.json.DefaultFormats
-import org.json4s.jackson.JsonMethods
-import org.junit.runner.RunWith
-import org.scalatest.FlatSpecLike
-import org.scalatest.junit.JUnitRunner
-import spray.httpx.Json4sJacksonSupport
-
-import scala.language.{implicitConversions, postfixOps}
+import scala.collection.mutable.{Map => MutableMap}
 
 /**
  * Created by greg on 19/09/14.
  */
+class QuarterMasterTests extends FlatSpec with QuarterMasterService with Matchers {
 
+  val vars = MutableMap[String,Int]()
+  var result = 0
 
-@RunWith(classOf[JUnitRunner])
-class QuarterMasterServiceSpec extends FlatSpecLike with Json4sJacksonSupport with JsonMethods {
-  implicit val json4sJacksonFormats = DefaultFormats
-
-
-
-
-
-
+  Given("""^a variable ([a-z]+) with value (\d+)$"""){ (varName:String, value:Int) =>
+    vars += varName -> value
+  }
+  When("""^I multiply ([a-z]+) \* ([a-z]+)$"""){ (var1:String, var2:String) =>
+    result = vars(var1) * vars(var2)
+  }
+  Then("""^I get (\d+)$"""){ (expectedResult:Int) =>
+    assert(result === expectedResult)
+  }
 }
+
+import scala.language.{implicitConversions, postfixOps}
+
+
+
