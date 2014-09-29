@@ -11,24 +11,19 @@ import spray.http.Uri.Path
 
 import scalaz._
 
-trait  QuarterMasterConfig{
+class QuarterMasterConfig(config:Config){
   implicit val timeout= Timeout(50L, TimeUnit.SECONDS)
   val mappingEventHandler = EventHeader("QuarterMasterUpdatePublisher")
   val mappingpath  = "/tmp/mapping.json"
   val mappingUri = "/quartermaster/mapping"
   val refreshMappingUri = mappingUri + "/refresh"
   val eventHeader:EventHeader=  EventHeader("QuarterMasterUpdatePublisher")
-  val publisherConfiguration = Reader(PublisherConfiguration(_:Config))
-  private val reliableConnection = Reader((c:Config) => RabbitMq.reliableConnection(RabbitMqConfig(c)))
+  val publisherConfiguration =PublisherConfiguration(config)
+  private val reliableConnection =RabbitMq.reliableConnection(RabbitMqConfig(config))
 
-  private val publisher = for {
-    rc <- reliableConnection
-    p <- publisherConfiguration
-  } yield new RabbitMqConfirmedPublisher(rc,p)
+  private val publisher =  new RabbitMqConfirmedPublisher(reliableConnection,publisherConfiguration)
 
-  val qSender =  Reader((arf : ActorRefFactory) => for {
-    p <- publisher
-  }  yield (arf.actorOf(Props(p),"QuarterMasterPublisher")))
+  val qSender =  Reader((arf : ActorRefFactory) =>  (arf.actorOf(Props(publisher),"QuarterMasterPublisher")))
 
   val healthService = Reader( (arf:ActorRefFactory) =>
     new HealthCheckHttpService {

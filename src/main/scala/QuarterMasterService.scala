@@ -2,16 +2,15 @@
 import java.io._
 
 import akka.actor.{ActorRef, ActorRefFactory}
+import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
 import com.blinkbox.books.logging.DiagnosticExecutionContext
 import com.blinkbox.books.messaging.{Event, EventHeader, JsonEventBody}
-import com.blinkbox.books.spray.v1.Version1JsonSupport
 import com.blinkbox.books.spray.{v2, Directives => CommonDirectives}
-import org.json4s.JsonAST._
+import org.json4s.FieldSerializer
 import org.json4s.jackson.JsonMethods
-import org.json4s.{FieldSerializer, StringInput}
+import org.json4s.jackson.Serialization.{read, write}
 import spray.http.StatusCodes._
-import spray.httpx.Json4sSupport
 import spray.routing._
 import spray.util.LoggingContext
 
@@ -26,39 +25,43 @@ case class UserId(id:String)
 
 case class UrlTemplate(serviceName:String, template:String)
 
-case class Mapping (extractor: String, templates: List[UrlTemplate])  extends JsonMethods with Json4sSupport      {
-  implicit val json4sFormats = DefaultFormats
-  implicit val formats = DefaultFormats
+case class Mapping (extractor: String, templates: List[UrlTemplate])  extends JsonMethods  with v2.JsonSupport      {
 
+  implicit val formats =  DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
 
+  implicit val timeout = Mapping.appConfig.timeout
 
   def store(mappingPath:String): IO[Unit] =
     IO {
       val fw = new FileWriter(mappingPath)
-      fw.write(toJson(this))
+      fw.write(toJson)
       fw.close()
     }
 
-  def toJson = (compact _) compose (asJValue[Mapping] _)
+  def toJson:String = write(this)
 
   def broadcastUpdate(qsender: ActorRef, eventHeader:EventHeader): IO[Future[Any]] =  IO {
     import akka.pattern.ask
-    val eventBody = JsonEventBody(toJson(this))
+    val eventBody = JsonEventBody(toJson)
     qsender ? Event(eventHeader, eventBody)
   }}
 
 
 
-object Mapping extends JsonMethods with Json4sSupport  with Version1JsonSupport {
+object Mapping extends JsonMethods with v2.JsonSupport with Configuration  {
+  val appConfig = new QuarterMasterConfig(config)
+  implicit val formats =  DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
 
-  val json4sFormats = DefaultFormats + FieldSerializer[Mapping]()
   val EXTRACTOR_NAME = "extractor"
   val TEMPLATES_NAME = "templates"
 
-  def fromJsonStr(jsonString :String):Option[Mapping]  =
-    parseOpt(StringInput(jsonString))  map   (fromJValue[Mapping](_:JValue))
 
+//  def fromJsonStr(jsonString :String):Option[Mapping]  = for{
+//   json <- JsonMethods.parseOpt(jsonString, formats.wantsBigDecimal)
+//   maybeMapping <- json.extractOpt(formats)
+//  } yield(maybeMapping)
 
+  def fromJsonStr(jsonString :String):Option[Mapping] = read(jsonString)
 
   def load(path: String): IO[Option[Mapping]] = IO {
     val jsonString = Source.fromFile(path).mkString("")
@@ -97,17 +100,17 @@ class QuarterMasterApi(config: QuarterMasterConfig) (implicit val actorRefFactor
     }
   }
 
+
+  val qSender = Mapping.appConfig.qSender(actorRefFactory)
   //should return 200
   val updateMappingRoute =
-
-      (qs:ActorRef) =>
       post {
         parameters('mappingJson) {
           (mappingStr: String) => {
             val isNewMapping = Mapping.fromJsonStr(mappingStr)
             mapping = isNewMapping.getOrElse(mapping)
             mapping.store(config.mappingpath)
-            val f: Future[Any] = mapping.broadcastUpdate(qs, config.eventHeader).unsafePerformIO()
+            val f: Future[Any] = mapping.broadcastUpdate(qSender, config.eventHeader).unsafePerformIO()
             complete(f)
           }
         }
@@ -115,20 +118,17 @@ class QuarterMasterApi(config: QuarterMasterConfig) (implicit val actorRefFactor
 
 
 
-  val reloadMappingRoute =
-    path(config.refreshMappingUri) {
+
+  val reloadMappingRoute = path(config.refreshMappingUri) {
       get {
         mapping = Mapping.load(config.mappingpath).unsafePerformIO().get
         complete(mapping.toJson)
       }
     }
 
-  val receiveReader =for{
-    hs <- config.healthService
-    umr <- updateMappingRoute
-  } yield runRoute(mappingRoute ~ reloadMappingRoute ~ umr ~ hs.routes)
-
-  val receive = Nil
+  -
+ val healthService = Mapping.appConfig.healthService(actorRefFactory)
+ val receive = runRoute(mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ healthService.routes)
 
 
   private def exceptionHandler(implicit log: LoggingContext) = ExceptionHandler {
