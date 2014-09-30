@@ -21,8 +21,6 @@ import scalaz.effect.IO
 
 case class UserId(id:String)
 
-
-
 case class UrlTemplate(serviceName:String, template:String)
 
 case class Mapping (extractor: String, templates: List[UrlTemplate])  extends JsonMethods  with v2.JsonSupport      {
@@ -58,7 +56,7 @@ object Mapping extends JsonMethods with v2.JsonSupport with Configuration  {
 
 //  def fromJsonStr(jsonString :String):Option[Mapping]  = for{
 //   json <- JsonMethods.parseOpt(jsonString, formats.wantsBigDecimal)
-//   maybeMapping <- json.extractOpt(formats)
+//   maybeMapping <- json.extract\Opt(formats)
 //  } yield(maybeMapping)
 
   def fromJsonStr(jsonString :String):Option[Mapping] = read(jsonString)
@@ -126,7 +124,7 @@ class QuarterMasterApi(config: QuarterMasterConfig) (implicit val actorRefFactor
       }
     }
 
-  -
+
  val healthService = Mapping.appConfig.healthService(actorRefFactory)
  val receive = runRoute(mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ healthService.routes)
 
