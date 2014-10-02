@@ -1,0 +1,35 @@
+w:Watcher[p] "Watcher"
+e:Epub[p] "EPub"
+qmstor:QuarterMaster[p] "QuarterMaster(Storage Service)"
+cs:CompletionService[a] 
+qmstat:QuarterMaster[p] "QuarterMaster(Status Service)"
+sc:CachedState [p]  "StateCache"
+s:List<Storage> [] "Storage Containers"
+
+w:qmstor.create(store file)
+
+qmstor:sc.update(pending)
+sc:qmstat.response(storage status)
+qmstor:cs.add to storage
+
+cs:s.attempt post storages
+cs:s.onComplete:update(status)
+cs:qmstor.
+qmstor:w.response(storage status)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

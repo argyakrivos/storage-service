@@ -1,7 +1,7 @@
 
 import java.io._
 
-import akka.actor.{ActorRef, ActorRefFactory}
+import akka.actor.ActorRef
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
 import com.blinkbox.books.logging.DiagnosticExecutionContext
@@ -97,7 +97,7 @@ trait RestRoutes extends HttpService {
 
 
 
-class QuarterMasterApi(config: QuarterMasterConfig) 
+class QuarterMasterApi(config: QuarterMasterConfig)
   extends HttpServiceActor with RestRoutes with CommonDirectives with v2.JsonSupport  {
 
 //throw an exception if it doesnt exist
