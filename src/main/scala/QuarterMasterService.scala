@@ -2,9 +2,7 @@
 import java.io._
 
 import akka.actor.ActorRef
-import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
-import com.blinkbox.books.logging.DiagnosticExecutionContext
 import com.blinkbox.books.messaging._
 import com.blinkbox.books.spray.{v2, Directives => CommonDirectives}
 import org.json4s.FieldSerializer
@@ -14,25 +12,20 @@ import spray.http.StatusCodes._
 import spray.routing._
 import spray.util.LoggingContext
 
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContextExecutor, Future}
 import scala.io.Source
 import scala.util.control.NonFatal
 import scalaz.effect.IO
 
 
 
-object Mapping extends JsonMethods with v2.JsonSupport with Configuration  {
-  val appConfig = new QuarterMasterConfig(config)
+object Mapping extends JsonMethods with v2.JsonSupport {
+
   implicit val formats =  DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
 
   val EXTRACTOR_NAME = "extractor"
   val TEMPLATES_NAME = "templates"
 
-
-  //  def fromJsonStr(jsonString :String):Option[Mapping]  = for{
-  //   json <- JsonMethods.parseOpt(jsonString, formats.wantsBigDecimal)
-  //   maybeMapping <- json.extract\Opt(formats)
-  //  } yield(maybeMapping)
 
   def fromJsonStr(jsonString :String):Option[Mapping] = read(jsonString)
 
@@ -42,8 +35,9 @@ object Mapping extends JsonMethods with v2.JsonSupport with Configuration  {
   }
 
   implicit object Mapping extends JsonEventBody[Mapping] {
-    val jsonMediaType = MediaType("application/vnd.blinkbox.books.actions.email.send.v2+json")
-    def unapply(body: EventBody): Option[( String, List[UrlTemplate])] = None
+
+    val jsonMediaType = MediaType("mapping/update/ v1.schema.json")
+
   }
 
 }
@@ -52,11 +46,10 @@ case class UserId(id:String)
 
 case class UrlTemplate(serviceName:String, template:String)
 
-case class Mapping (extractor: String, templates: List[UrlTemplate])  extends JsonMethods  with v2.JsonSupport    {
+case class Mapping (extractor: String, templates: List[UrlTemplate])  extends JsonMethods  with v2.JsonSupport with QuarterMasterConfig   {
 
   implicit val formats =  DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
 
-  implicit val timeout = Mapping.appConfig.timeout
 
   def store(mappingPath:String): IO[Unit] =
     IO {
@@ -68,18 +61,12 @@ case class Mapping (extractor: String, templates: List[UrlTemplate])  extends Js
   def toJson:String = write(this)
 
 
-
-
-
   def broadcastUpdate(qsender: ActorRef, eventHeader:EventHeader): IO[Future[Any]] =  IO {
     import akka.pattern.ask
-
     qsender ? Event.json[Mapping](eventHeader, this)
   }
 
    val jsonMediaType: MediaType = MediaType("application/quatermaster+json")
-
-
 
 }
 
@@ -89,26 +76,46 @@ case class Mapping (extractor: String, templates: List[UrlTemplate])  extends Js
 
 trait RestRoutes extends HttpService {
   def getAll: Route
+
+
+  def unapply(body: EventBody): Option[( String, List[UrlTemplate])]  = {
+    val maybeMapping:Option[Mapping] = JsonEventBody.unapply[Mapping](body)
+    maybeMapping.flatMap((m:Mapping) => Mapping.unapply(m) )
+  }
+}
+
+
+object QuarterMasterService  extends QuarterMasterConfig {
+  var mapping: Mapping = Mapping.load(mappingpath).unsafePerformIO().get
+
+
+//just mention what it takes extra data needed by spray
+  def _updateAndBroadcastMapping(sender:ActorRef, executionContext:ExecutionContextExecutor )(m:Mapping)(mappingStr:String):(Mapping,Future[Any]) =
+  ( for {
+     maybeMapping <- Mapping.fromJsonStr(mappingStr)
+      _  = maybeMapping.store(mappingpath)
+      ioFuture = maybeMapping.broadcastUpdate(sender, eventHeader).unsafePerformIO()
+   } yield (maybeMapping,ioFuture)).getOrElse((m,Future{"done already"}(executionContext)))
+
+//requires the values required by qSender before
+  val updateAndBroadcastMapping = for {
+    qs <- qSender
+    ec <- executionContext
+  } yield _updateAndBroadcastMapping(qs, ec) _
+
 }
 
 
 
 
+class QuarterMasterRoutes  extends HttpServiceActor with QuarterMasterConfig
+    with RestRoutes with CommonDirectives with v2.JsonSupport  {
 
+  val runtimeConfig = QuarterMasterRuntimeDeps(actorRefFactory)
 
-
-class QuarterMasterApi(config: QuarterMasterConfig)
-  extends HttpServiceActor with RestRoutes with CommonDirectives with v2.JsonSupport  {
-
-//throw an exception if it doesnt exist
-  var mapping: Mapping = Mapping.load(config.mappingpath).unsafePerformIO().get
-
-
-  implicit val executionContext = DiagnosticExecutionContext(actorRefFactory.dispatcher)
-
-  val mappingRoute = path(config.mappingUri) {
+  val mappingRoute = path(mappingUri) {
     get {
-      complete(mapping)
+      complete(QuarterMasterService.mapping)
     }
   }
 
@@ -120,36 +127,24 @@ class QuarterMasterApi(config: QuarterMasterConfig)
     }
   }
 
-
-  val qSender = Mapping.appConfig.qSender(actorRefFactory)
   //should return 200
-  val updateMappingRoute =
+   val  updateMappingRoute =
       post {
         parameters('mappingJson) {
-          (mappingStr: String) => {
-            val isNewMapping = Mapping.fromJsonStr(mappingStr)
-            mapping = isNewMapping.getOrElse(mapping)
-            mapping.store(config.mappingpath)
-            val f: Future[Any] = mapping.broadcastUpdate(qSender, config.eventHeader).unsafePerformIO()
-            complete(f)
-          }
+          ((t:(Mapping, Future[Any])) => complete(t._2)) compose  QuarterMasterService.updateAndBroadcastMapping(runtimeConfig)(QuarterMasterService.mapping)
         }
       }
 
-
-
-
-  val reloadMappingRoute = path(config.refreshMappingUri) {
+  val reloadMappingRoute = path(refreshMappingUri) {
       get {
-        mapping = Mapping.load(config.mappingpath).unsafePerformIO().get
+        val mapping = Mapping.load(mappingpath).unsafePerformIO().get
         complete(mapping.toJson)
       }
     }
 
 
- val healthService = Mapping.appConfig.healthService(actorRefFactory)
- def receive = runRoute(mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ healthService.routes)
 
+ def receive = runRoute(mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ healthService(runtimeConfig).routes)
 
   private def exceptionHandler(implicit log: LoggingContext) = ExceptionHandler {
     case NonFatal(e) =>
