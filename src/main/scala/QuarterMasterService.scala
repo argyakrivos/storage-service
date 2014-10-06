@@ -69,6 +69,11 @@ case class Mapping (extractor: String, templates: List[UrlTemplate])  extends Js
 }
 
 
+val a: List[Int] = toList(Some(3))
+assert(List(3) == a)
+
+val b: List[Boolean] = toList(Some(true))
+assert(List(true) == b)
 
 
 

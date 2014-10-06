@@ -19,7 +19,6 @@ paths:
   /mapping:
     get:
       summary: Lookup mapping, only available internally
-      description: Retrieves the latest mapping file
       tags: 
         - Mapping
       responses:  
@@ -31,11 +30,16 @@ paths:
           description: Not authenticated
         404:
           description: No mapping file found
-          
-  /mapping:
     post:
       summary: set the new mapping file
       description: Sets the latest mapping file, this has a side effect of broadcasting the mapping file update over rabbitmq
+      parameters:
+        - name: mapping
+          in: body
+          description: Data
+          required: true
+          schema:
+            $ref: MappingFile
       tags:
         - Mapping
       responses:
@@ -50,10 +54,16 @@ paths:
         
           
           
-  /qm/resources:
+  /qm/resources/{hash}:
     get:
       summary: get a resource uri 
       description: query the uri of a resource
+      parameters:
+        - name: mapping
+          in: path
+          description: Data
+          required: true
+          type: string
       tags:
         - Mapping
       responses:
@@ -65,10 +75,17 @@ paths:
           description: Not authenticated
         404:
           description: Unknown or invalid resource
-                
+  /qm/resources:              
     post:
       summary: add new resource 
       description: add a new resource to quartermaster
+      parameters:
+        - name: mapping
+          in: body
+          description: a request to the quartermaster to store data
+          required: true
+          schema:
+            $ref: ResourceStorageRequest
       tags:
         - Mapping
       responses:
