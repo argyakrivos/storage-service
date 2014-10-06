@@ -9,12 +9,14 @@ import org.json4s.FieldSerializer
 import org.json4s.jackson.JsonMethods
 import org.json4s.jackson.Serialization.{read, write}
 import spray.http.StatusCodes._
+import spray.httpx.marshalling.ToResponseMarshallable
 import spray.routing._
 import spray.util.LoggingContext
 
 import scala.concurrent.{ExecutionContextExecutor, Future}
 import scala.io.Source
 import scala.util.control.NonFatal
+import scalaz.State
 import scalaz.effect.IO
 
 
@@ -69,11 +71,7 @@ case class Mapping (extractor: String, templates: List[UrlTemplate])  extends Js
 }
 
 
-val a: List[Int] = toList(Some(3))
-assert(List(3) == a)
 
-val b: List[Boolean] = toList(Some(true))
-assert(List(true) == b)
 
 
 
@@ -93,12 +91,12 @@ object QuarterMasterService  extends QuarterMasterConfig {
 
 
 //just mention what it takes extra data needed by spray
-  def _updateAndBroadcastMapping(sender:ActorRef, executionContext:ExecutionContextExecutor )(m:Mapping)(mappingStr:String):(Mapping,Future[Any]) =
-  ( for {
+  def _updateAndBroadcastMapping(sender:ActorRef, executionContext:ExecutionContextExecutor)(mappingStr:String):State[Mapping,Future[Any]] =
+  State ((m:Mapping) => ( for {
      maybeMapping <- Mapping.fromJsonStr(mappingStr)
       _  = maybeMapping.store(mappingpath)
       ioFuture = maybeMapping.broadcastUpdate(sender, eventHeader).unsafePerformIO()
-   } yield (maybeMapping,ioFuture)).getOrElse((m,Future{"done already"}(executionContext)))
+   } yield (maybeMapping,ioFuture)).getOrElse((m,Future{"done already"}(executionContext))))
 
 //requires the values required by qSender before
   val updateAndBroadcastMapping = for {
@@ -129,11 +127,25 @@ class QuarterMasterRoutes  extends HttpServiceActor with QuarterMasterConfig
       }
     }
   }
-  //should return 200
+
+  type SprayCompleteType  =  (⇒ ToResponseMarshallable) ⇒ StandardRoute
+  def runStateForSpray(s:State[Mapping, Future[Any]]) : StandardRoute = {
+    s.run(QuarterMasterService.mapping)  match {
+      case (m:Mapping, f:Future[Any]) => {
+        QuarterMasterService.mapping = m
+        complete(f)
+      }
+    }
+  }
+
+    //should return 200
    val  updateMappingRoute =
       post {
         parameters('mappingJson) {
-          ((t:(Mapping, Future[Any])) => complete(t._2)) compose  QuarterMasterService.updateAndBroadcastMapping(runtimeConfig)(QuarterMasterService.mapping)
+//           compose
+          (s:String) => {
+            runStateForSpray(QuarterMasterService.updateAndBroadcastMapping(runtimeConfig).apply(s))
+          }
         }
       }
 
