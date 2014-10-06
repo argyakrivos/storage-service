@@ -1,0 +1,149 @@
+swagger: 2
+
+info:
+  title: QuarterMaster Storage - Public API
+  description: Consumer facing REST API for storage of resources on the cloud.
+  version: 1.0.0
+  
+# Service configuration
+host: www.blinkbox.com
+schemes:
+  - http
+  - https
+basePath: /
+produces:
+  - application/json
+
+# Service end-points  
+paths:
+  /mapping:
+    get:
+      summary: Lookup mapping, only available internally
+      description: Retrieves the latest mapping file
+      tags: 
+        - Mapping
+      responses:  
+        200:
+          description: Mapping
+          schema:
+            $ref: MappingFile
+        401:
+          description: Not authenticated
+        404:
+          description: No mapping file found
+          
+  /mapping:
+    post:
+      summary: set the new mapping file
+      description: Sets the latest mapping file, this has a side effect of broadcasting the mapping file update over rabbitmq
+      tags:
+        - Mapping
+      responses:
+        200:
+          description: Mapping updated successfully
+          schema:
+            $ref: MappingFile
+        401:
+          description: Not authenticated
+        404:
+          description: Unknown or invalid storage request
+        
+          
+          
+  /qm/resources:
+    get:
+      summary: get a resource uri 
+      description: query the uri of a resource
+      tags:
+        - Mapping
+      responses:
+        200:
+          description: resource added successfully
+          schema:
+            $ref: StorageStatusResponse
+        401:
+          description: Not authenticated
+        404:
+          description: Unknown or invalid resource
+                
+    post:
+      summary: add new resource 
+      description: add a new resource to quartermaster
+      tags:
+        - Mapping
+      responses:
+        200:
+          description: resource added successfully
+          schema:
+            $ref: StorageStatusResponse
+        401:
+          description: Not authenticated
+        404:
+          description: Unknown or invalid request
+                 
+         
+
+definitions:
+  StorageTemplate:
+      description: For a named storage:A structure which describes how to apply a set of tokens to its template in order to generate a url for a resource 
+      properties: 
+        storage: 
+          type: string
+          description: one the enumerated names available storages
+        template:
+          type: string
+          description: a string containing placeholders where tokens are added to generate a url for a resource
+  MappingFile:
+    description: List of templates that describe how to create a url from the uri passed back from quarter master
+    properties:
+      extractorPattern:
+        type: string
+        description: a regex containing groups that capture tokens to apply to templates to produce urls for each of the enumerated storages
+      templates:  
+        type: array
+        description: an Map of Templates that describes how to create a url from the tokens extracted for a given storagename
+        schema: 
+          $ref: StorageTemplate
+
+  StorageStatus:
+    description: progress status of a resource's storage, an empty finish date suggest incomplete or broken status
+    properties:
+      storagetype:
+        type: string 
+        description: One of the enumerated storage types
+      
+      timeStarted: 
+        type: datetime
+        description: timeStamp of when the request was last successfully sent to this storage
+      timeFinished: 
+        type: datetime
+        description: timeStamp of when the request was last successfully completed by this storage
+        
+        
+  ResourceStorageRequest:
+    description: a  ResourceStorageRequest plus payload
+    properties:
+      resourcename:
+        type: string
+        description: a name associated with the resource to be persisted
+      payload:
+        type: blob
+        description: the resource to be uploaded
+        
+  StorageStatusResponse:
+    description: progress status of a resource's storage
+    properties:
+      resourcename:
+        type: string 
+        description: Resource identifier
+      resourcehash:
+        type: String
+        description: a md5 or other hash of the storage payload
+      uri:
+        type: string
+        description: the template uri for the resource
+      progress:
+        type:  array
+        description: a map on of storage requests ->complete boolean
+        schema: 
+          $ref: StorageStatus

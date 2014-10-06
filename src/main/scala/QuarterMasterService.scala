@@ -35,9 +35,7 @@ object Mapping extends JsonMethods with v2.JsonSupport {
   }
 
   implicit object Mapping extends JsonEventBody[Mapping] {
-
-    val jsonMediaType = MediaType("mapping/update/ v1.schema.json")
-
+    val jsonMediaType = MediaType("mapping/update/v1.schema.json")
   }
 
 }
@@ -126,7 +124,6 @@ class QuarterMasterRoutes  extends HttpServiceActor with QuarterMasterConfig
       }
     }
   }
-
   //should return 200
    val  updateMappingRoute =
       post {
