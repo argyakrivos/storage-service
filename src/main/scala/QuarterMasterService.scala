@@ -142,10 +142,7 @@ class QuarterMasterRoutes  extends HttpServiceActor with QuarterMasterConfig
    val  updateMappingRoute =
       post {
         parameters('mappingJson) {
-//           compose
-          (s:String) => {
-            runStateForSpray(QuarterMasterService.updateAndBroadcastMapping(runtimeConfig).apply(s))
-          }
+          (QuarterMasterService.updateAndBroadcastMapping(runtimeConfig).apply(_:String)) andThen (runStateForSpray(_))
         }
       }
 
@@ -159,6 +156,8 @@ class QuarterMasterRoutes  extends HttpServiceActor with QuarterMasterConfig
 
 
  def receive = runRoute(mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ healthService(runtimeConfig).routes)
+
+
 
   private def exceptionHandler(implicit log: LoggingContext) = ExceptionHandler {
     case NonFatal(e) =>
