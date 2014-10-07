@@ -1,10 +1,8 @@
 swagger: 2
-
 info:
   title: QuarterMaster Storage - Public API
   description: Consumer facing REST API for storage of resources on the cloud.
   version: 1.0.0
-  
 # Service configuration
 host: www.blinkbox.com
 schemes:
@@ -13,15 +11,14 @@ schemes:
 basePath: /
 produces:
   - application/json
-
-# Service end-points  
+# Service end-points
 paths:
   /mapping:
     get:
       summary: Lookup mapping, only available internally
-      tags: 
+      tags:
         - Mapping
-      responses:  
+      responses:
         200:
           description: Mapping
           schema:
@@ -51,12 +48,9 @@ paths:
           description: Not authenticated
         404:
           description: Unknown or invalid storage request
-        
-          
-          
   /qm/resources/{hash}:
     get:
-      summary: get a resource uri 
+      summary: get a resource uri
       description: query the uri of a resource
       parameters:
         - name: mapping
@@ -75,9 +69,9 @@ paths:
           description: Not authenticated
         404:
           description: Unknown or invalid resource
-  /qm/resources:              
+  /qm/resources:
     post:
-      summary: add new resource 
+      summary: add new resource
       description: add a new resource to quartermaster
       parameters:
         - name: mapping
@@ -97,14 +91,11 @@ paths:
           description: Not authenticated
         404:
           description: Unknown or invalid request
-                 
-         
-
 definitions:
   StorageTemplate:
-      description: For a named storage:A structure which describes how to apply a set of tokens to its template in order to generate a url for a resource 
-      properties: 
-        storage: 
+      description: For a named storage:A structure which describes how to apply a set of tokens to its template in order to generate a url for a resource
+      properties:
+        storage:
           type: string
           description: one the enumerated names available storages
         template:
@@ -116,27 +107,24 @@ definitions:
       extractorPattern:
         type: string
         description: a regex containing groups that capture tokens to apply to templates to produce urls for each of the enumerated storages
-      templates:  
+      templates:
         type: array
         description: an Map of Templates that describes how to create a url from the tokens extracted for a given storagename
-        schema: 
+        schema:
           $ref: StorageTemplate
 
   StorageStatus:
     description: progress status of a resource's storage, an empty finish date suggest incomplete or broken status
     properties:
       storagetype:
-        type: string 
+        type: string
         description: One of the enumerated storage types
-      
-      timeStarted: 
+      timeStarted:
         type: datetime
         description: timeStamp of when the request was last successfully sent to this storage
-      timeFinished: 
+      timeFinished:
         type: datetime
         description: timeStamp of when the request was last successfully completed by this storage
-        
-        
   ResourceStorageRequest:
     description: a  ResourceStorageRequest plus payload
     properties:
@@ -146,12 +134,11 @@ definitions:
       payload:
         type: blob
         description: the resource to be uploaded
-        
   StorageStatusResponse:
     description: progress status of a resource's storage
     properties:
       resourcename:
-        type: string 
+        type: string
         description: Resource identifier
       resourcehash:
         type: String
@@ -162,5 +149,5 @@ definitions:
       progress:
         type:  array
         description: a map on of storage requests ->complete boolean
-        schema: 
+        schema:
           $ref: StorageStatus
