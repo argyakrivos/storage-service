@@ -104,7 +104,7 @@ def maybeBroadcast(sender:ActorRef,mappingStr:String):Option[(Mapping, Future[An
   def _updateAndBroadcastMapping(sender:ActorRef, executionContext:ExecutionContextExecutor)(mappingStr:String):State[Mapping,Future[Any]]
 =   State[Mapping,Future[Any]]((oldMapping:Mapping) => maybeBroadcast(sender, mappingStr) match {
     case Some((newMapping,future)) => (newMapping, future)
-    case None => (oldMapping, Future{"done"})
+    case None => (oldMapping, Future{"done"}(executionContext))
   })
 
 
