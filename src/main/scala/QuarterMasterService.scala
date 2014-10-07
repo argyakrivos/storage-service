@@ -29,16 +29,21 @@ object Mapping extends JsonMethods with v2.JsonSupport {
   val TEMPLATES_NAME = "templates"
 
 
-  def fromJsonStr(jsonString :String):Option[Mapping] = read(jsonString)
-
-  def load(path: String): IO[Option[Mapping]] = IO {
-    val jsonString = Source.fromFile(path).mkString("")
-    fromJsonStr(jsonString)
+  def fromJsonStr(jsonString :String):Option[Mapping] = try {
+    read(jsonString)
+  }catch {
+    case e:Exception => None
   }
 
-  implicit object Mapping extends JsonEventBody[Mapping] {
-    val jsonMediaType = MediaType("mapping/update/v1.schema.json")
-  }
+    def load(path: String): IO[Option[Mapping]] = IO {
+      val jsonString = Source.fromFile(path).mkString("")
+      fromJsonStr(jsonString)
+    }
+
+    implicit object Mapping extends JsonEventBody[Mapping] {
+      val jsonMediaType = MediaType("mapping/update/v1.schema.json")
+    }
+
 
 }
 
@@ -89,14 +94,19 @@ trait RestRoutes extends HttpService {
 object QuarterMasterService  extends QuarterMasterConfig {
   var mapping: Mapping = Mapping.load(mappingpath).unsafePerformIO().get
 
+def maybeBroadcast(sender:ActorRef,mappingStr:String):Option[(Mapping, Future[Any])] = for {
+  maybeMapping <- Mapping.fromJsonStr(mappingStr)
+  _ = maybeMapping.store(mappingpath)
+  ioFuture = maybeMapping.broadcastUpdate(sender, eventHeader).unsafePerformIO()
+} yield (maybeMapping, ioFuture)
 
 //just mention what it takes extra data needed by spray
-  def _updateAndBroadcastMapping(sender:ActorRef, executionContext:ExecutionContextExecutor)(mappingStr:String):State[Mapping,Future[Any]] =
-  State ((m:Mapping) => ( for {
-     maybeMapping <- Mapping.fromJsonStr(mappingStr)
-      _  = maybeMapping.store(mappingpath)
-      ioFuture = maybeMapping.broadcastUpdate(sender, eventHeader).unsafePerformIO()
-   } yield (maybeMapping,ioFuture)).getOrElse((m,Future{"done already"}(executionContext))))
+  def _updateAndBroadcastMapping(sender:ActorRef, executionContext:ExecutionContextExecutor)(mappingStr:String):State[Mapping,Future[Any]]
+=   State[Mapping,Future[Any]]((oldMapping:Mapping) => maybeBroadcast(sender, mappingStr) match {
+    case Some((newMapping,future)) => (newMapping, future)
+    case None => (oldMapping, Future{"done"})
+  })
+
 
 //requires the values required by qSender before
   val updateAndBroadcastMapping = for {
