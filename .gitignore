@@ -1,0 +1,5 @@
+/.idea/
+/.idea_modules/
+/atlassian-ide-plugin.xml
+/src/main/scala/target/
+/target/
