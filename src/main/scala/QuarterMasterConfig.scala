@@ -1,6 +1,8 @@
+package com.blinkbox.books.storageservice
+
 import java.util.concurrent.TimeUnit
 
-import akka.actor.{ActorRefFactory, Props}
+import akka.actor.{ActorContext, Props}
 import akka.util.Timeout
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.logging.DiagnosticExecutionContext
@@ -14,7 +16,7 @@ import scala.concurrent.ExecutionContextExecutor
 import scalaz._
 
 //dependencies that are not available until runtime
-case class QuarterMasterRuntimeDeps(arf:ActorRefFactory)
+case class QuarterMasterRuntimeDeps(arf:ActorContext)
 
 trait QuarterMasterConfig extends Configuration{
   implicit val timeout= Timeout(50L, TimeUnit.SECONDS)

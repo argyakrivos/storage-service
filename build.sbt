@@ -28,8 +28,8 @@ libraryDependencies ++= {
     "com.typesafe.akka"         %% "akka-testkit"       % akkaV     % Test,
     "com.blinkbox.books"        %% "common-scala-test"  % "0.3.0"   % Test,
     "com.blinkbox.books"        %% "common-spray"       % "0.17.0",
-    "com.blinkbox.books"        %% "common-spray-auth"  % "0.6.0",
-    "com.blinkbox.books.hermes" %% "rabbitmq-ha"        % "7.0.0",
+    "com.blinkbox.books"        %% "common-spray-auth"  % "0.7.0",
+    "com.blinkbox.books.hermes" %% "rabbitmq-ha"        % "7.1.0",
     "org.scalacheck"            %% "scalacheck"         % "1.11.5"  % Test
   )
 }

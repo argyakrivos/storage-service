@@ -1,3 +1,4 @@
+package com.blinkbox.books.storageservice
 
 import java.io._
 
@@ -91,7 +92,7 @@ trait RestRoutes extends HttpService {
 }
 
 
-object QuarterMasterService  extends QuarterMasterConfig {
+class QuarterMasterService extends QuarterMasterConfig {
   var mapping: Mapping = Mapping.load(mappingpath).unsafePerformIO().get
 
 def maybeBroadcast(sender:ActorRef,mappingStr:String):Option[(Mapping, Future[Any])] = for {
@@ -103,7 +104,7 @@ def maybeBroadcast(sender:ActorRef,mappingStr:String):Option[(Mapping, Future[An
 //just mention what it takes extra data needed by spray
   def _updateAndBroadcastMapping(sender:ActorRef, executionContext:ExecutionContextExecutor)(mappingStr:String):State[Mapping,Future[Any]]
 =   State[Mapping,Future[Any]]((oldMapping:Mapping) => maybeBroadcast(sender, mappingStr) match {
-    case Some((newMapping,future)) => (newMapping, future)
+    case Some((newMapping:Mapping,future:Future[Any])) => (newMapping, future)
     case None => (oldMapping, Future{"done"}(executionContext))
   })
 
@@ -119,14 +120,14 @@ def maybeBroadcast(sender:ActorRef,mappingStr:String):Option[(Mapping, Future[An
 
 
 
-class QuarterMasterRoutes  extends HttpServiceActor with QuarterMasterConfig
+class QuarterMasterRoutes(qms:QuarterMasterService)  extends HttpServiceActor with QuarterMasterConfig
     with RestRoutes with CommonDirectives with v2.JsonSupport  {
 
   val runtimeConfig = QuarterMasterRuntimeDeps(actorRefFactory)
 
   val mappingRoute = path(mappingUri) {
     get {
-      complete(QuarterMasterService.mapping)
+      complete(qms.mapping)
     }
   }
 
@@ -140,9 +141,9 @@ class QuarterMasterRoutes  extends HttpServiceActor with QuarterMasterConfig
 
   type SprayCompleteType  =  (⇒ ToResponseMarshallable) ⇒ StandardRoute
   def runStateForSpray(s:State[Mapping, Future[Any]]) : StandardRoute = {
-    s.run(QuarterMasterService.mapping)  match {
+    s.run(qms.mapping)  match {
       case (m:Mapping, f:Future[Any]) => {
-        QuarterMasterService.mapping = m
+        qms.mapping = m
         complete(f)
       }
     }
@@ -152,7 +153,7 @@ class QuarterMasterRoutes  extends HttpServiceActor with QuarterMasterConfig
    val  updateMappingRoute =
       post {
         parameters('mappingJson) {
-          (QuarterMasterService.updateAndBroadcastMapping(runtimeConfig).apply(_:String)) andThen (runStateForSpray(_))
+          (qms.updateAndBroadcastMapping(runtimeConfig).apply(_:String)) andThen (runStateForSpray(_))
         }
       }
 
@@ -165,7 +166,9 @@ class QuarterMasterRoutes  extends HttpServiceActor with QuarterMasterConfig
 
 
 
- def receive = runRoute(mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ healthService(runtimeConfig).routes)
+  val quarterMasterRoute: Route = mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ healthService(runtimeConfig).routes
+ def receive = runRoute(quarterMasterRoute)
+
 
 
 
