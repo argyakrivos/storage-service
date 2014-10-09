@@ -64,7 +64,7 @@ paths:
         200:
           description: resource added successfully
           schema:
-            $ref: StorageStatusResponse
+            $ref: ProviderStatusResponse
         401:
           description: Not authenticated
         404:
@@ -79,14 +79,14 @@ paths:
           description: a request to the quartermaster to store data
           required: true
           schema:
-            $ref: ResourceStorageRequest
+            $ref: ProviderStorageRequest
       tags:
         - Mapping
       responses:
         200:
           description: resource added successfully
           schema:
-            $ref: StorageStatusResponse
+            $ref: ProviderStatusResponse
         401:
           description: Not authenticated
         404:
@@ -113,7 +113,7 @@ definitions:
         schema:
           $ref: StorageTemplate
 
-  StorageStatus:
+  ProviderStatus:
     description: progress status of a resource's storage, an empty finish date suggest incomplete or broken status
     properties:
       storagetype:
@@ -122,10 +122,13 @@ definitions:
       timeStarted:
         type: datetime
         description: timeStamp of when the request was last successfully sent to this storage
-      timeFinished:
-        type: datetime
-        description: timeStamp of when the request was last successfully completed by this storage
-  ResourceStorageRequest:
+      bytesSaved:
+        type: int
+        description: amount of bytesSaved
+      size:
+        type: int
+        description: the total size of the resource
+  ProviderStorageRequest:
     description: a  ResourceStorageRequest plus payload
     properties:
       resourcename:
@@ -134,20 +137,17 @@ definitions:
       payload:
         type: blob
         description: the resource to be uploaded
-  StorageStatusResponse:
+  ProviderStatusResponse:
     description: progress status of a resource's storage
     properties:
       resourcename:
         type: string
-        description: Resource identifier
-      resourcehash:
-        type: String
-        description: a md5 or other hash of the storage payload
+        description: name
       uri:
         type: string
-        description: the template uri for the resource
-      progress:
+        description: the template uri for the resource that also serves as the unique identifier for the resource
+      providers:
         type:  array
         description: a map on of storage requests ->complete boolean
         schema:
-          $ref: StorageStatus
+          $ref: ProviderStatus
