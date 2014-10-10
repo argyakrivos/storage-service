@@ -91,21 +91,21 @@ trait RestRoutes extends HttpService {
   }
 }
 
-
+//QuarterMasterConfig is like static config, probably not even useful for testing
 class QuarterMasterService extends QuarterMasterConfig {
   var mapping: Mapping = Mapping.load(mappingpath).unsafePerformIO().get
 
-def maybeBroadcast(sender:ActorRef,mappingStr:String):Option[(Mapping, Future[Any])] = for {
+private def maybeBroadcast(sender:ActorRef,mappingStr:String):Option[(Mapping, IO[Future[Any]])] = for {
   maybeMapping <- Mapping.fromJsonStr(mappingStr)
   _ = maybeMapping.store(mappingpath)
-  ioFuture = maybeMapping.broadcastUpdate(sender, eventHeader).unsafePerformIO()
+  ioFuture = maybeMapping.broadcastUpdate(sender, eventHeader)
 } yield (maybeMapping, ioFuture)
 
 //just mention what it takes extra data needed by spray
-  def _updateAndBroadcastMapping(sender:ActorRef, executionContext:ExecutionContextExecutor)(mappingStr:String):State[Mapping,Future[Any]]
-=   State[Mapping,Future[Any]]((oldMapping:Mapping) => maybeBroadcast(sender, mappingStr) match {
-    case Some((newMapping:Mapping,future:Future[Any])) => (newMapping, future)
-    case None => (oldMapping, Future{"done"}(executionContext))
+ private def _updateAndBroadcastMapping(sender:ActorRef, executionContext:ExecutionContextExecutor)(mappingStr:String):State[Mapping, IO[Future[Any]]]
+=   State[Mapping,IO[Future[Any]]]((oldMapping:Mapping) => maybeBroadcast(sender, mappingStr) match {
+    case Some((newMapping:Mapping,iofuture:Future[Any])) => (newMapping, iofuture)
+    case None => (oldMapping, IO{Future{"done"}(executionContext)})
   })
 
 
@@ -140,11 +140,11 @@ class QuarterMasterRoutes(qms:QuarterMasterService)  extends HttpServiceActor wi
   }
 
   type SprayCompleteType  =  (⇒ ToResponseMarshallable) ⇒ StandardRoute
-  def runStateForSpray(s:State[Mapping, Future[Any]]) : StandardRoute = {
+  def runStateForSpray(s:State[Mapping, IO[Future[Any]]]) : StandardRoute = {
     s.run(qms.mapping)  match {
-      case (m:Mapping, f:Future[Any]) => {
+      case (m:Mapping, f:IO[Future[Any]]) => {
         qms.mapping = m
-        complete(f)
+        complete(f.unsafePerformIO())
       }
     }
   }
@@ -166,7 +166,7 @@ class QuarterMasterRoutes(qms:QuarterMasterService)  extends HttpServiceActor wi
 
 
 
-  val quarterMasterRoute: Route = mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ healthService(runtimeConfig).routes
+  val quarterMasterRoute = mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ healthService(runtimeConfig).routes
  def receive = runRoute(quarterMasterRoute)
 
 

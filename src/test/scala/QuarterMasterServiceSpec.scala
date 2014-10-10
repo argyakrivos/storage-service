@@ -2,18 +2,14 @@
 
 
 package com.blinkbox.books.storageservice
-import com.blinkbox.books.storageservice.{QuarterMasterRoutes, QuarterMasterService}
-import spray.testkit.ScalatestRouteTest
-import spray.http.StatusCodes._
-import com.blinkbox.books.json.DefaultFormats
-import org.json4s.jackson.JsonMethods
+
+import org.scalacheck.Arbitrary.arbitrary
+import org.scalacheck.Gen
+import org.scalatest.prop.GeneratorDrivenPropertyChecks
 import org.scalatest.{FlatSpecLike, Matchers}
-import spray.httpx.Json4sJacksonSupport
 
-import spray.testkit.Specs2RouteTest
-import spray.routing.HttpService
-
-
+import scala.concurrent.Future
+import scalaz.effect.IO
 
 
 /**
@@ -23,19 +19,42 @@ import spray.routing.HttpService
 
 
 
-class QuarterMasterServiceSpec(qms:QuarterMasterService) extends QuarterMasterRoutes(qms) with FlatSpecLike
-with Json4sJacksonSupport with ScalatestRouteTest with  JsonMethods  with Matchers {
-  override def actorRefFactory = runtimeConfig.arf
-  implicit val json4sJacksonFormats = DefaultFormats
-  it should "return the mapping file "  in {
-    Get("/mapping/update") ~> quarterMasterRoute ~> check {
-      status === OK
-    }
+class QuarterMasterSpecification  extends FlatSpecLike with Matchers with GeneratorDrivenPropertyChecks    {
+
+ // probably could just use arbitrary[caseClass] , but this affords more control
+
+
+
+  val runtimeConfig = QuarterMasterRuntimeDeps(null)
+  val templateGen = for {
+    serviceName <- arbitrary[String]
+    template <- arbitrary[String]
+  } yield UrlTemplate(serviceName, template)
+
+  val qms = new QuarterMasterService
+
+  val mappingGen = for {
+    templateList <- Gen.listOf(templateGen)
+    extractor <- arbitrary[String]
+  }yield Mapping(extractor, templateList)
+
+"The quarterMasterService" should "update the mapping file " in {
+  forAll(mappingGen, mappingGen) { (oldMapping: Mapping, newMapping:Mapping) =>
+  val tuple: (Mapping, IO[Future[Any]]) = qms.updateAndBroadcastMapping(runtimeConfig)(newMapping.toJson).run(oldMapping)
+  tuple._1 == oldMapping
+
   }
 
+}
 
 
 }
+
+
+
+
+
+
 
 
 

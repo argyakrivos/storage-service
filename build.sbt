@@ -6,8 +6,15 @@ scalaVersion := "2.11.2"
  
 version := scala.util.Try(scala.io.Source.fromFile("VERSION").mkString.trim).getOrElse("0.0.0")
 
+resolvers ++= Seq(
+  "sonatype-snapshots" at "http://oss.sonatype.org/content/repositories/snapshots",
+  "sonatype-releases"  at "http://oss.sonatype.org/content/repositories/releases")
 
-resolvers ++= Seq ("Sonatype Releases" at "http://oss.sonatype.org/content/repositories/releases")
+resolvers ++= Seq(
+  "snapshots" at "http://scala-tools.org/repo-snapshots",
+  "releases"  at "http://scala-tools.org/repo-releases")
+
+
 
 scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf8", "-target:jvm-1.7")
  
@@ -21,7 +28,7 @@ libraryDependencies ++= {
     "org.scalaz"                %% "scalaz-core"        % scalazVersion,
     "org.scalaz"                %% "scalaz-effect"      % scalazVersion,
     "org.scalaz"                %% "scalaz-typelevel"   % scalazVersion,
-    "org.scalaz"                %% "scalaz-scalacheck-binding" % scalazVersion % "test",
+    "org.scalaz"                %% "scalaz-scalacheck-binding" % scalazVersion %  Test,
     "org.json4s"                %% "json4s-jackson"     % json4sV,
     "com.blinkbox.books"        %% "common-messaging"   %  "1.1.4",
     "com.typesafe.akka"         %% "akka-slf4j"         % akkaV,
