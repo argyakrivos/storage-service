@@ -3,6 +3,7 @@ package com.blinkbox.books.storageservice
 import java.io._
 
 import akka.actor.ActorRef
+import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
 import com.blinkbox.books.messaging._
 import com.blinkbox.books.spray.{v2, Directives => CommonDirectives}
@@ -52,10 +53,11 @@ case class UserId(id:String)
 
 case class UrlTemplate(serviceName:String, template:String)
 
-case class Mapping (extractor: String, templates: List[UrlTemplate])  extends JsonMethods  with v2.JsonSupport with QuarterMasterConfig   {
+case class Mapping (extractor: String, templates: List[UrlTemplate])  extends JsonMethods  with v2.JsonSupport  with Configuration  {
 
   implicit val formats =  DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
 
+  implicit val timeout = AppConfig(config).timeout
 
   def store(mappingPath:String): IO[Unit] =
     IO {
@@ -92,27 +94,28 @@ trait RestRoutes extends HttpService {
 }
 
 //QuarterMasterConfig is like static config, probably not even useful for testing
-class QuarterMasterService extends QuarterMasterConfig {
-  var mapping: Mapping = Mapping.load(mappingpath).unsafePerformIO().get
+class QuarterMasterService extends Configuration {
+  val appConfig = AppConfig(config)
+  var mapping: Mapping = Mapping.load(appConfig.mappingpath).unsafePerformIO().get
 
 private def maybeBroadcast(sender:ActorRef,mappingStr:String):Option[(Mapping, IO[Future[Any]])] = for {
   maybeMapping <- Mapping.fromJsonStr(mappingStr)
-  _ = maybeMapping.store(mappingpath)
-  ioFuture = maybeMapping.broadcastUpdate(sender, eventHeader)
+  _ = maybeMapping.store(appConfig.mappingpath)
+  ioFuture = maybeMapping.broadcastUpdate(sender, appConfig.eventHeader)
 } yield (maybeMapping, ioFuture)
 
 //just mention what it takes extra data needed by spray
  private def _updateAndBroadcastMapping(sender:ActorRef, executionContext:ExecutionContextExecutor)(mappingStr:String):State[Mapping, IO[Future[Any]]]
 =   State[Mapping,IO[Future[Any]]]((oldMapping:Mapping) => maybeBroadcast(sender, mappingStr) match {
-    case Some((newMapping:Mapping,iofuture:Future[Any])) => (newMapping, iofuture)
+    case Some((newMapping:Mapping,iofuture:IO[Future[Any]])) => (newMapping, iofuture)
     case None => (oldMapping, IO{Future{"done"}(executionContext)})
   })
 
 
 //requires the values required by qSender before
   val updateAndBroadcastMapping = for {
-    qs <- qSender
-    ec <- executionContext
+    qs <- appConfig.rmq.qSender
+    ec <- appConfig.rmq.executionContext
   } yield _updateAndBroadcastMapping(qs, ec) _
 
 }
@@ -120,12 +123,13 @@ private def maybeBroadcast(sender:ActorRef,mappingStr:String):Option[(Mapping, I
 
 
 
-class QuarterMasterRoutes(qms:QuarterMasterService)  extends HttpServiceActor with QuarterMasterConfig
+class QuarterMasterRoutes(qms:QuarterMasterService)  extends HttpServiceActor with Configuration
     with RestRoutes with CommonDirectives with v2.JsonSupport  {
 
   val runtimeConfig = QuarterMasterRuntimeDeps(actorRefFactory)
+  val appConfig = AppConfig(config)
 
-  val mappingRoute = path(mappingUri) {
+  val mappingRoute = path(appConfig.mappingUri) {
     get {
       complete(qms.mapping)
     }
@@ -157,16 +161,16 @@ class QuarterMasterRoutes(qms:QuarterMasterService)  extends HttpServiceActor wi
         }
       }
 
-  val reloadMappingRoute = path(refreshMappingUri) {
+  val reloadMappingRoute = path(appConfig.refreshMappingUri) {
       get {
-        val mapping = Mapping.load(mappingpath).unsafePerformIO().get
+        val mapping = Mapping.load(appConfig.mappingpath).unsafePerformIO().get
         complete(mapping.toJson)
       }
     }
 
 
 
-  val quarterMasterRoute = mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ healthService(runtimeConfig).routes
+  val quarterMasterRoute = mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ appConfig.hsc.healthService(runtimeConfig).routes
  def receive = runRoute(quarterMasterRoute)
 
 
