@@ -2,7 +2,7 @@ package com.blinkbox.books.storageservice
 
 import java.util.concurrent.TimeUnit
 
-import akka.actor.{ActorContext, Props}
+import akka.actor.{Props, ActorContext}
 import akka.util.Timeout
 import com.blinkbox.books.logging.DiagnosticExecutionContext
 import com.blinkbox.books.messaging.EventHeader
@@ -28,11 +28,16 @@ case class HealthServiceConfig(c:Config){
 
 
 case class RabbitMQConfig(c:Config){
-  val publisherConfiguration =PublisherConfiguration(c)
-  private val reliableConnection =RabbitMq.reliableConnection(RabbitMqConfig(c))
-  private val publisher =  new RabbitMqConfirmedPublisher(reliableConnection,publisherConfiguration)
+  val publisherConfiguration =PublisherConfiguration(c.getConfig("service.qm.sender"))
+  private val reliableConnection =RabbitMq.reliableConnection(RabbitMqConfig(c.getConfig("service.qm")))
+//  private val publisher = Reader(
+//    (deps:QuarterMasterRuntimeDeps) =>  deps.arf.actorOf(Props(publisher), "QuarterMasterPublisher")
+//
+//  )
+//
+//    new RabbitMqConfirmedPublisher(reliableConnection,publisherConfiguration)
   val qSender =  Reader(
-    (deps:QuarterMasterRuntimeDeps) =>  deps.arf.actorOf(Props(publisher), "QuarterMasterPublisher")
+    (deps:QuarterMasterRuntimeDeps) =>  deps.arf.actorOf(Props(RabbitMqConfirmedPublisher.getClass), "QuarterMasterPublisher")
 
   )
 

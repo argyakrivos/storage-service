@@ -34,7 +34,10 @@ object Mapping extends JsonMethods with v2.JsonSupport {
   def fromJsonStr(jsonString :String):Option[Mapping] = try {
     read(jsonString)
   }catch {
-    case e:Exception => None
+
+    case e:Exception =>
+      println(e.toString)
+      None
   }
 
     def load(path: String): IO[Option[Mapping]] = IO {
