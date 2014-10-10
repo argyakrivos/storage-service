@@ -1,0 +1,15 @@
+w:Watcher[p] "Watcher"
+e:Epub[p] "EPub"
+qmstor:QuarterMaster[p] "QuarterMaster(Storage Service)"
+sc:CachedState []  "StateCache"
+s:List<Storage> [p] "Storage Containers"
+
+
+e:qmstor.get /resources/{token}
+qmstor:sc.get(status:id=token)
+sc:qmstor.not found = complete
+
+qmstor:s.not in state cache?determine state frm pvdr
+s:qmstor.min 1 provider found
+
+qmstor:w.response status (success=atleast1provider)

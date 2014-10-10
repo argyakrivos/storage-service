@@ -10,12 +10,12 @@ s:List<Storage> [p] "Storage Containers"
 e:qmstor.get
 qmstor:sc.get(status:id=token)
 sc:qmstor.found!storagefailiure
-qmstor:s.status complete?get
+
 qmstor:cs.status fail?get First from Successful
 cs:s.attempt get resource from storages
 qmstor:sc.update status(pending)
 qmstor:cs2.store file
-cs2:s.attempt post storages
+cs2:s.attempt storages
 cs2:sc.onComplete:update(status)
 qmstor:w.response status (success=minComplete?)
 
