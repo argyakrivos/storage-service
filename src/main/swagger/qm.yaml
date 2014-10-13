@@ -146,10 +146,7 @@ example providerstatus response
 
 
 example  mapping file
-{
-"extractorPattern":"^.*/(?P<filename>$.*)\.(?P<extenstion>.{2,3})\\?"
-{
-"azure-a":"http://azureservices.com/blinkbox/\g<filename>.\g<extenstion>"
-}
-
-}
+{"extractor":"^.*/(?P<filename>$.*)\\.(?P<extenstion>.{2,3})\\?",
+"templates":[{
+	"serviceName":"azure-a",
+	"template":"http://azureservices.com/blinkbox/\\g<filename>.\\g<extenstion>"}]}

@@ -32,11 +32,16 @@ object Mapping extends JsonMethods with v2.JsonSupport {
 
 
   def fromJsonStr(jsonString :String):Option[Mapping] = try {
-    read(jsonString)
+    println("****"+JsonMethods.parse(jsonString, formats.wantsBigDecimal))
+    read[Option[Mapping]](jsonString)
+
+//    val json = parse(req.body.map(bytes => new String(bytes, "UTF-8")) openOr "")
+//    val request: UpdatedSource = json.extract[UpdatedSource]
   }catch {
 
     case e:Exception =>
       println(e.toString)
+      e.printStackTrace
       None
   }
 
