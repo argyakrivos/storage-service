@@ -9,13 +9,13 @@ import com.blinkbox.books.messaging._
 import com.blinkbox.books.spray.{v2, Directives => CommonDirectives}
 import org.json4s.FieldSerializer
 import org.json4s.jackson.JsonMethods
-import org.json4s.jackson.Serialization.{read, write}
+import org.json4s.jackson.Serialization._
 import spray.http.StatusCodes._
 import spray.httpx.marshalling.ToResponseMarshallable
 import spray.routing._
 import spray.util.LoggingContext
 
-import scala.concurrent.{ExecutionContextExecutor, Future}
+import scala.concurrent.Future
 import scala.io.Source
 import scala.util.control.NonFatal
 import scalaz.State
@@ -33,7 +33,7 @@ object Mapping extends JsonMethods with v2.JsonSupport {
 
   def fromJsonStr(jsonString :String):Option[Mapping] = try {
     println("****"+JsonMethods.parse(jsonString, formats.wantsBigDecimal))
-    read[Option[Mapping]](jsonString)
+   read[Option[MappingRaw]](jsonString).map(new Mapping(_))
 
 //    val json = parse(req.body.map(bytes => new String(bytes, "UTF-8")) openOr "")
 //    val request: UpdatedSource = json.extract[UpdatedSource]
@@ -44,6 +44,8 @@ object Mapping extends JsonMethods with v2.JsonSupport {
       e.printStackTrace
       None
   }
+
+    def toJson(m:Mapping):String = write[MappingRaw](m.m)
 
     def load(path: String): IO[Option[Mapping]] = IO {
       val jsonString = Source.fromFile(path).mkString("")
@@ -61,20 +63,22 @@ case class UserId(id:String)
 
 case class UrlTemplate(serviceName:String, template:String)
 
-case class Mapping (extractor: String, templates: List[UrlTemplate])  extends JsonMethods  with v2.JsonSupport  with Configuration  {
+case class MappingRaw(extractor: String, templates: List[UrlTemplate])
+
+case class Mapping(m:MappingRaw)  extends JsonMethods  with v2.JsonSupport  with Configuration  {
 
   implicit val formats =  DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
 
-  implicit val timeout = AppConfig(config).timeout
+  implicit val timeout = AppConfig.timeout
 
   def store(mappingPath:String): IO[Unit] =
     IO {
       val fw = new FileWriter(mappingPath)
-      fw.write(toJson)
+      fw.write(Mapping.toJson(this))
       fw.close()
     }
 
-  def toJson:String = write(this)
+
 
 
   def broadcastUpdate(qsender: ActorRef, eventHeader:EventHeader): IO[Future[Any]] =  IO {
@@ -95,15 +99,14 @@ trait RestRoutes extends HttpService {
   def getAll: Route
 
 
-  def unapply(body: EventBody): Option[( String, List[UrlTemplate])]  = {
-    val maybeMapping:Option[Mapping] = JsonEventBody.unapply[Mapping](body)
-    maybeMapping.flatMap((m:Mapping) => Mapping.unapply(m) )
-  }
+//  def unapply(body: EventBody): Option[( String, List[UrlTemplate])]  = {
+//    val maybeMapping:Option[Mapping] = JsonEventBody.unapply[Mapping](body)
+//    maybeMapping.map((m:MappingRaw) => MappingRaw.unapply(m) )
+//  }
 }
 
 //QuarterMasterConfig is like static config, probably not even useful for testing
-class QuarterMasterService extends Configuration {
-  val appConfig = AppConfig(config)
+case class QuarterMasterService(appConfig:AppConfig) {
   var mapping: Mapping = Mapping.load(appConfig.mappingpath).unsafePerformIO().get
 
 private def maybeBroadcast(sender:ActorRef,mappingStr:String):Option[(Mapping, IO[Future[Any]])] = for {
@@ -113,29 +116,24 @@ private def maybeBroadcast(sender:ActorRef,mappingStr:String):Option[(Mapping, I
 } yield (maybeMapping, ioFuture)
 
 //just mention what it takes extra data needed by spray
- private def _updateAndBroadcastMapping(sender:ActorRef, executionContext:ExecutionContextExecutor)(mappingStr:String):State[Mapping, IO[Future[Any]]]
-=   State[Mapping,IO[Future[Any]]]((oldMapping:Mapping) => maybeBroadcast(sender, mappingStr) match {
+  def _updateAndBroadcastMapping(mappingStr:String):State[Mapping, IO[Future[Any]]]
+=   State[Mapping,IO[Future[Any]]]((oldMapping:Mapping) => maybeBroadcast(appConfig.rmq.qSender, mappingStr) match {
     case Some((newMapping:Mapping,iofuture:IO[Future[Any]])) => (newMapping, iofuture)
-    case None => (oldMapping, IO{Future{"done"}(executionContext)})
+    case None => (oldMapping, IO{Future{"done"}(appConfig.rmq.executionContext)})
   })
 
 
-//requires the values required by qSender before
-  val updateAndBroadcastMapping = for {
-    qs <- appConfig.rmq.qSender
-    ec <- appConfig.rmq.executionContext
-  } yield _updateAndBroadcastMapping(qs, ec) _
 
 }
 
 
 
 
-class QuarterMasterRoutes(qms:QuarterMasterService)  extends HttpServiceActor with Configuration
+class QuarterMasterRoutes(qms:QuarterMasterService)  extends HttpServiceActor
     with RestRoutes with CommonDirectives with v2.JsonSupport  {
 
-  val runtimeConfig = QuarterMasterRuntimeDeps(actorRefFactory)
-  val appConfig = AppConfig(config)
+
+  val appConfig = qms.appConfig
 
   val mappingRoute = path(appConfig.mappingUri) {
     get {
@@ -165,20 +163,20 @@ class QuarterMasterRoutes(qms:QuarterMasterService)  extends HttpServiceActor wi
    val  updateMappingRoute =
       post {
         parameters('mappingJson) {
-          (qms.updateAndBroadcastMapping(runtimeConfig).apply(_:String)) andThen (runStateForSpray(_))
+          (qms._updateAndBroadcastMapping _) andThen (runStateForSpray(_))
         }
       }
 
   val reloadMappingRoute = path(appConfig.refreshMappingUri) {
       get {
         val mapping = Mapping.load(appConfig.mappingpath).unsafePerformIO().get
-        complete(mapping.toJson)
+        complete(Mapping.toJson(mapping))
       }
     }
 
 
 
-  val quarterMasterRoute = mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ appConfig.hsc.healthService(runtimeConfig).routes
+  val quarterMasterRoute = mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ appConfig.hsc.healthService.routes
  def receive = runRoute(quarterMasterRoute)
 
 

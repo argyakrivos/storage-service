@@ -2,7 +2,7 @@ package com.blinkbox.books.storageservice
 
 import java.util.concurrent.TimeUnit
 
-import akka.actor.{Props, ActorContext}
+import akka.actor.{ActorRefFactory, Props}
 import akka.util.Timeout
 import com.blinkbox.books.logging.DiagnosticExecutionContext
 import com.blinkbox.books.messaging.EventHeader
@@ -12,43 +12,30 @@ import com.blinkbox.books.spray.HealthCheckHttpService
 import com.typesafe.config.Config
 import spray.http.Uri.Path
 
-import scala.concurrent.ExecutionContextExecutor
-import scalaz._
 
-//dependencies that are not available until runtime
-case class QuarterMasterRuntimeDeps(arf:ActorContext)
 
-case class HealthServiceConfig(c:Config){
-  val healthService = Reader( (deps:QuarterMasterRuntimeDeps) =>
+case class HealthServiceConfig(arf:ActorRefFactory){
+  val healthService =
     new HealthCheckHttpService {
-      override implicit def actorRefFactory = deps.arf
+      override implicit def actorRefFactory = arf
       override val basePath = Path("/")
-    } )
+    }
 }
 
 
-case class RabbitMQConfig(c:Config){
-  val publisherConfiguration =PublisherConfiguration(c.getConfig("service.qm.sender"))
+case class RabbitMQConfig(c:Config, arf:ActorRefFactory){
+  val publisherConfiguration: PublisherConfiguration =PublisherConfiguration(c.getConfig("service.qm.sender"))
   private val reliableConnection =RabbitMq.reliableConnection(RabbitMqConfig(c.getConfig("service.qm")))
-//  private val publisher = Reader(
-//    (deps:QuarterMasterRuntimeDeps) =>  deps.arf.actorOf(Props(publisher), "QuarterMasterPublisher")
-//
-//  )
-//
-//    new RabbitMqConfirmedPublisher(reliableConnection,publisherConfiguration)
-  val qSender =  Reader(
-    (deps:QuarterMasterRuntimeDeps) =>  deps.arf.actorOf(Props(RabbitMqConfirmedPublisher.getClass), "QuarterMasterPublisher")
 
-  )
+  val qSender = arf.actorOf(Props(new RabbitMqConfirmedPublisher(reliableConnection, publisherConfiguration)), "QuarterMasterPublisher")
 
-  val executionContext:Reader[QuarterMasterRuntimeDeps, ExecutionContextExecutor] = Reader(
-    (deps:QuarterMasterRuntimeDeps) => DiagnosticExecutionContext(deps.arf.dispatcher) )
+  val executionContext=DiagnosticExecutionContext(arf.dispatcher)
 }
 
 
 
 case class AppConfig(rmq:RabbitMQConfig, hsc:HealthServiceConfig){
-  implicit val timeout= Timeout(50L, TimeUnit.SECONDS)
+
   val mappingEventHandler = EventHeader("QuarterMasterUpdatePublisher")
   val mappingpath  = "/tmp/mapping.json"
   val mappingUri = "/quartermaster/mapping"
@@ -57,8 +44,9 @@ case class AppConfig(rmq:RabbitMQConfig, hsc:HealthServiceConfig){
 }
 
 object AppConfig {
-  def apply(c:Config)={
-    new AppConfig( RabbitMQConfig(c),HealthServiceConfig(c))
+  implicit val timeout= Timeout(50L, TimeUnit.SECONDS)
+  def apply(c:Config,arf:ActorRefFactory)={
+    new AppConfig( RabbitMQConfig(c,arf),HealthServiceConfig(arf))
   }
 
 

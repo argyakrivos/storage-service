@@ -6,6 +6,8 @@ scalaVersion := "2.11.2"
  
 version := scala.util.Try(scala.io.Source.fromFile("VERSION").mkString.trim).getOrElse("0.0.0")
 
+testOptions in Test += Tests.Argument("-oDF")
+
 resolvers ++= Seq(
   "sonatype-snapshots" at "http://oss.sonatype.org/content/repositories/snapshots",
   "sonatype-releases"  at "http://oss.sonatype.org/content/repositories/releases")
