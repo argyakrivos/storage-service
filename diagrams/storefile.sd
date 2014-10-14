@@ -1,21 +1,27 @@
 w:Watcher[p] "Watcher"
 e:Epub[p] "EPub"
 qmstor:QuarterMaster[p] "QuarterMaster(Storage Service)"
-cs:CompletionService[a] 
-qmstat:QuarterMaster[p] "QuarterMaster(Status Service)"
+cs:StorageHelper:CompletionService[a] 
 sc:CachedState [p]  "StateCache"
+cu:CleanupHelper[a] 
 s:List<Storage> [] "Storage Containers"
 
+
+# note that the watcher now has to poll for the service it is also up to the watcher to restart any failed services
 w:qmstor.create(store file)
+qmstor:w.response(201 processing)
 
 qmstor:sc.update(pending)
-sc:qmstat.response(storage status)
+sc:qmstor.response(storage status)
 qmstor:cs.add to storage
 
 cs:s.attempt post storages
-cs:s.onComplete:update(status)
-cs:qmstor.
-qmstor:w.response(storage status)
+cs:sc.onComplete:update(status)
+
+cs:cu.onComplete/Timeout:update(status)
+cu:s.cleanup()
+w:qmstor.uploadstatus()
+qmstor:w.response(status)
 
 
 

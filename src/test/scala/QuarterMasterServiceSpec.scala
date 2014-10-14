@@ -11,7 +11,6 @@ import org.scalatest.{FlatSpecLike, Matchers}
 import spray.testkit.ScalatestRouteTest
 
 import scala.concurrent.Future
-import scalaz.effect.IO
 
 
 
@@ -43,9 +42,10 @@ class QuarterMasterSpecification  extends   Configuration with FlatSpecLike with
 
 "The quarterMasterService" should "update the mapping file " in {
   forAll(mappingGen, mappingGen) { (oldMapping: Mapping, newMapping:Mapping) =>
-  val tuple: (Mapping, IO[Future[Any]]) = qms._updateAndBroadcastMapping(Mapping.toJson(newMapping)).run(oldMapping)
-  tuple._1 == oldMapping
-
+  val json: String = Mapping.toJson(newMapping)
+  val f: Future[(Mapping, Any)] = qms._updateAndBroadcastMapping(json)
+    //future.option.try.tuple
+  f.value.get.get._1 == oldMapping
   }
 
 }

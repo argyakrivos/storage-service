@@ -34,7 +34,7 @@ case class RabbitMQConfig(c:Config, arf:ActorRefFactory){
 
 
 
-case class AppConfig(rmq:RabbitMQConfig, hsc:HealthServiceConfig){
+case class AppConfig(rmq:RabbitMQConfig, hsc:HealthServiceConfig, sc: StorageConfig){
 
   val mappingEventHandler = EventHeader("QuarterMasterUpdatePublisher")
   val mappingpath  = "/tmp/mapping.json"
@@ -46,8 +46,13 @@ case class AppConfig(rmq:RabbitMQConfig, hsc:HealthServiceConfig){
 object AppConfig {
   implicit val timeout= Timeout(50L, TimeUnit.SECONDS)
   def apply(c:Config,arf:ActorRefFactory)={
-    new AppConfig( RabbitMQConfig(c,arf),HealthServiceConfig(arf))
+    new AppConfig( RabbitMQConfig(c,arf),HealthServiceConfig(arf), new StorageConfig)
   }
 
+
+}
+
+class StorageConfig {
+  val localPath="/tmp/assets/"
 
 }
