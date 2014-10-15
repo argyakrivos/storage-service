@@ -35,7 +35,9 @@ with Matchers with GeneratorDrivenPropertyChecks  with ScalaFutures {
     template <- arbitrary[String]
   } yield UrlTemplate(serviceName, template)
 
-  val qms = new QuarterMasterService(AppConfig(config, system))
+  val appConfig: AppConfig = AppConfig(config, system)
+  val qms = new QuarterMasterService(appConfig)
+  val qmss = new QuarterMasterStorageService(appConfig)
 
   val mappingGen = for {
     templateList <- Gen.listOf(templateGen)
@@ -59,7 +61,6 @@ with Matchers with GeneratorDrivenPropertyChecks  with ScalaFutures {
       whenReady[(Mapping, Any), Unit](f)((t: (Mapping, Any)) => t._1 shouldEqual oldMapping)
 
     }
-
   }
 
 

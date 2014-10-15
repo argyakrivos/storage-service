@@ -2,6 +2,7 @@ package com.blinkbox.books.storageservice
 
 import java.io._
 import java.lang.Exception
+import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 
 import akka.actor.ActorRef
@@ -171,23 +172,53 @@ case class QuarterMasterService(appConfig:AppConfig) {
 }
 
 class QuarterMasterStorageService(appConfig:AppConfig) extends StorageService {
-   val repo:TrieMap[AssetToken,AssetData] = new TrieMap[AssetToken, AssetData]
+   val repo:TrieMap[AssetToken,Progress] = new TrieMap[AssetToken, Progress]
 
   def getPath(assetToken:AssetToken):String={
       appConfig.sc.localPath ++ assetToken.token
   }
 
-  def storeStatus(assetToken:AssetToken, assetData:AssetData) ={
-    repo.put(assetToken,assetData)
+  def storeProgress = repo.put _
+
+  def getProgress = repo.get  _
+
+  def removeProgress(assetToken:AssetToken) ={
+    repo.remove(assetToken)
   }
+
+  def updateProgress(assetToken:AssetToken, size:Long, started:DateTime, bytesWritten:Long) ={
+
+      repo.put(assetToken, new Progress(new AssetData(started, size), bytesWritten))
+
+  }
+  
+  
 
   override def storeAsset(assetToken: AssetToken)(data: Array[Byte]):Future[AssetToken] = Future{
     // import spray.httpx.SprayJsonSupport._
 
     val fos: FileOutputStream = new FileOutputStream(getPath(assetToken));
+    val channel = fos.getChannel
+    val numBytes: Long = data.length
+    val started: DateTime = DateTime.now
+    updateProgress(assetToken,numBytes, started, 0)
     try {
-      storeStatus(assetToken, new AssetData(DateTime.now, 0))
-      fos.write(data);
+
+
+
+      val  buf:ByteBuffer = ByteBuffer.allocate(48);
+      buf.clear();
+      buf.put(data);
+
+      buf.flip();
+
+      while(buf.hasRemaining()) {
+        channel.write(buf);
+        updateProgress(assetToken,numBytes, started, buf.position())
+      }
+
+      removeProgress(assetToken)
+     
       assetToken
     } finally {
       fos.close();
@@ -197,7 +228,7 @@ class QuarterMasterStorageService(appConfig:AppConfig) extends StorageService {
 
  //returns an option of future if the token isnt in the cache nothing happens
    override def progress(assetToken: AssetToken): Future[Progress] =  Future {
-    val assetData:AssetData = repo.get(assetToken).get
+    val assetData:AssetData = repo.get(assetToken).get.assetData
     val f: FileInputStream= new FileInputStream(getPath(assetToken));
     val fc:FileChannel = f.getChannel
     try {
@@ -227,10 +258,7 @@ class QuarterMasterStorageRoutes(qmss:QuarterMasterStorageService) extends HttpS
 
     path("upload") {
       post {
-
         formField('data.as[Array[Byte]]) {
-
-
           (data:Array[Byte]) => {
             val res = qmss.storeAsset(genToken(data))(data)
              respondWithMediaType(MediaTypes.`application/json`) {
