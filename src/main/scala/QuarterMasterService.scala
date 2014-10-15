@@ -1,6 +1,7 @@
 package com.blinkbox.books.storageservice
 
 import java.io._
+import java.lang.Exception
 import java.nio.channels.FileChannel
 
 import akka.actor.ActorRef
@@ -8,6 +9,7 @@ import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
 import com.blinkbox.books.messaging._
 import com.blinkbox.books.spray.{v2, Directives => CommonDirectives}
+import com.fasterxml.jackson.databind.JsonMappingException
 import org.json4s.FieldSerializer
 import org.json4s.jackson.JsonMethods
 import org.json4s.jackson.Serialization._
@@ -17,10 +19,11 @@ import spray.routing._
 import spray.util.LoggingContext
 
 import scala.collection.concurrent.TrieMap
-import scala.concurrent.Future
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.{Await, Future}
 import scala.io.Source
 import scala.util.control.NonFatal
-
+import scala.concurrent.duration._
 
 
 object Mapping extends JsonMethods with v2.JsonSupport {
@@ -31,15 +34,14 @@ object Mapping extends JsonMethods with v2.JsonSupport {
   val TEMPLATES_NAME = "templates"
 
 
-  def fromJsonStr(jsonString: String): Future[Mapping] = Future{
+  def fromJsonStr(jsonString: String): Future[Mapping] = {
+    Future {
 
-    read[Option[MappingRaw]](jsonString).map(new Mapping(_))
-  }.map
-  {
-    case Some(mapping:Mapping) => mapping
-    case None => throw new IllegalArgumentException(s"cant parse jsonString: $jsonString")
+      val m = read[Option[MappingRaw]](jsonString).map(new Mapping(_))
+
+      m
+    }.map { (_.getOrElse(throw new IllegalArgumentException(s"cant parse jsonString: $jsonString")))}
   }
-
 
   def toJson(m: Mapping): String = write[MappingRaw](m.m)
 
@@ -50,7 +52,7 @@ object Mapping extends JsonMethods with v2.JsonSupport {
 
 
     implicit object Mapping extends JsonEventBody[Mapping] {
-      val jsonMediaType = MediaType("mapping/update/v1.schema.json")
+      val jsonMediaType = MediaType("application/vnd.blinkbox.books.ingestion.quartermaster.v2+json")
     }
 
 
@@ -58,13 +60,43 @@ object Mapping extends JsonMethods with v2.JsonSupport {
 
 
 case class Status (eta:DateTime,  available:Boolean)
+
 case class AssetData(timeStarted:DateTime, totalSize:Long)
+case class _AssetData(timeStarted:DateTime, totalSize:Long)
 case class Progress(assetData:AssetData, sizeWritten:Long )
 
 
-object Status{
+
+
+object Status  extends Ordering[Status]{
+
+  val neverStatus:Status = new Status(DateTime.MaxValue, false)
+  def isDone(progress:Progress):Boolean = progress.sizeWritten >= progress.assetData.totalSize
+
+  override def compare(a: Status,b: Status): Int = a.eta.clicks compare b.eta.clicks
+
+  def earlierStatus(latestProgress:Progress, earliestStatus:Status):Status = {
+    val that = toStatus(latestProgress)
+    min (earliestStatus, that)
+  }
+
+  def toStatus(progress:Progress):Status = {
+    val now = DateTime.now
+    if (isDone(progress))
+       return new Status(now, true)
+    else {
+      val size = progress.assetData.totalSize
+      val written = progress.sizeWritten
+      val start = progress.assetData.timeStarted
+      val unwritten = size - written
+      val timeTakenMillis = now.clicks - start.clicks
+      val bytesPerMillis = written / timeTakenMillis
+      val etaClicks = unwritten / bytesPerMillis
+      new Status(now + etaClicks, false)
+    }
+  }
   //TODO complete the status calcualtion and serialise
-  def getStatus(progress:List[Progress]):Status = new Status(null, null)
+  def getStatus(progress:List[Progress]):Status = progress.foldRight[Status](neverStatus)(earlierStatus)
   //various f
 }
 
@@ -91,11 +123,15 @@ case class Mapping(m:MappingRaw)  extends JsonMethods  with v2.JsonSupport  with
 
 
   def broadcastUpdate(qsender: ActorRef, eventHeader:EventHeader): Future[Any] =   {
+
     import akka.pattern.ask
-    qsender ? Event.json[Mapping](eventHeader, this)
+
+    val f = qsender ? Event.json[Mapping](eventHeader, this)
+
+    f
   }
 
-   val jsonMediaType: MediaType = MediaType("application/quatermaster+json")
+   val jsonMediaType: MediaType = MediaType("application/vnd.blinkbox.books.ingestion.quartermaster.v2+json")
 
 }
 
@@ -113,14 +149,16 @@ trait RestRoutes extends HttpService {
 //QuarterMasterConfig is like static config, probably not even useful for testing
 //services will all be  of type (Mapping) => (Mapping, A) where A is generic, these will be hoisted into a DSL at some point... maybe
 case class QuarterMasterService(appConfig:AppConfig) {
-  var mapping: Mapping = null
+  var mapping: Mapping = Await.result(loadMapping, 1000 millis)
+  //implicit val executionContext = appConfig.rmq.executionContext
 
-
- def _updateAndBroadcastMapping(mappingStr:String):Future[(Mapping, Any)] = for {
-  mapping <- Mapping.fromJsonStr(mappingStr)
-  _ <- mapping.store(appConfig.mappingpath)
-  broadcaststatus <- mapping.broadcastUpdate(appConfig.rmq.qSender, appConfig.eventHeader)
-} yield (mapping, broadcaststatus)
+ def _updateAndBroadcastMapping(mappingStr:String):Future[(Mapping, Any)] =   (for {
+     mapping <- Mapping.fromJsonStr(mappingStr)
+     _ <- mapping.store(appConfig.mappingpath)
+     broadcaststatus <- mapping.broadcastUpdate(appConfig.rmq.qSender, appConfig.eventHeader)
+   } yield (mapping, broadcaststatus)).recover[(Mapping, Any)] {
+     case _ => (this.mapping, false)
+   }
 
 
 
@@ -158,18 +196,17 @@ class QuarterMasterStorageService(appConfig:AppConfig) extends StorageService {
   }
 
  //returns an option of future if the token isnt in the cache nothing happens
-   override def progress(assetToken: AssetToken): Option[Future[Progress]] = repo.get(assetToken).map( (assetData:AssetData) => Future {
+   override def progress(assetToken: AssetToken): Future[Progress] =  Future {
+    val assetData:AssetData = repo.get(assetToken).get
     val f: FileInputStream= new FileInputStream(getPath(assetToken));
     val fc:FileChannel = f.getChannel
     try {
-
      new Progress(assetData, fc.size)
-
     } finally {
       fc.close()
       f.close()
     }
-  })
+  }
 }
 
 class QuarterMasterStorageRoutes(qmss:QuarterMasterStorageService) extends HttpServiceActor with RestRoutes with CommonDirectives with v2.JsonSupport {
@@ -305,7 +342,7 @@ trait StorageService {
 
 
   def storeAsset(token:AssetToken)(data:Array[Byte]):Future[AssetToken]
-  def progress(token:AssetToken):Progress
+  def progress(token:AssetToken):Future[Progress]
 
 }
 

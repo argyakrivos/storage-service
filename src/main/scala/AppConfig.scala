@@ -36,7 +36,7 @@ case class RabbitMQConfig(c:Config, arf:ActorRefFactory){
 
 case class AppConfig(rmq:RabbitMQConfig, hsc:HealthServiceConfig, sc: StorageConfig){
 
-  val mappingEventHandler = EventHeader("QuarterMasterUpdatePublisher")
+  val mappingEventHandler = EventHeader("application/quartermaster+json")
   val mappingpath  = "/tmp/mapping.json"
   val mappingUri = "/quartermaster/mapping"
   val refreshMappingUri = mappingUri + "/refresh"
