@@ -5,7 +5,7 @@ import java.lang.Exception
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 
-import akka.actor.ActorRef
+import akka.actor.{Props, ActorRef}
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
 import com.blinkbox.books.messaging._
@@ -127,10 +127,9 @@ case class Mapping(m:MappingRaw)  extends JsonMethods  with v2.JsonSupport  with
 
     import akka.pattern.ask
 
-    val f = qsender ? Event.json[Mapping](eventHeader, this)
+   qsender ? Event.json[Mapping](eventHeader, this)
 
-    f
-  }
+    }
 
    val jsonMediaType: MediaType = MediaType("application/vnd.blinkbox.books.ingestion.quartermaster.v2+json")
 
@@ -147,98 +146,30 @@ trait RestRoutes extends HttpService {
 
 }
 
-//QuarterMasterConfig is like static config, probably not even useful for testing
-//services will all be  of type (Mapping) => (Mapping, A) where A is generic, these will be hoisted into a DSL at some point... maybe
-case class QuarterMasterService(appConfig:AppConfig) {
-  var mapping: Mapping = Await.result(loadMapping, 1000 millis)
-  //implicit val executionContext = appConfig.rmq.executionContext
-
- def _updateAndBroadcastMapping(mappingStr:String):Future[(Mapping, Any)] =   (for {
-     mapping <- Mapping.fromJsonStr(mappingStr)
-     _ <- mapping.store(appConfig.mappingpath)
-     broadcaststatus <- mapping.broadcastUpdate(appConfig.rmq.qSender, appConfig.eventHeader)
-   } yield (mapping, broadcaststatus)).recover[(Mapping, Any)] {
-     case _ => (this.mapping, false)
-   }
 
 
 
 
-  def loadMapping():Future[Mapping] =
-    Mapping.load(appConfig.mappingpath)
 
 
 
-}
-
-class QuarterMasterStorageService(appConfig:AppConfig) extends StorageService {
-   val repo:TrieMap[AssetToken,Progress] = new TrieMap[AssetToken, Progress]
-
-  def getPath(assetToken:AssetToken):String={
-      appConfig.sc.localPath ++ assetToken.token
-  }
-
-  def storeProgress = repo.put _
-
-  def getProgress = repo.get  _
-
-  def removeProgress(assetToken:AssetToken) ={
-    repo.remove(assetToken)
-  }
-
-  def updateProgress(assetToken:AssetToken, size:Long, started:DateTime, bytesWritten:Long) ={
-
-      repo.put(assetToken, new Progress(new AssetData(started, size), bytesWritten))
-
-  }
-  
-  
-
-  override def storeAsset(assetToken: AssetToken)(data: Array[Byte]):Future[AssetToken] = Future{
-    // import spray.httpx.SprayJsonSupport._
-
-    val fos: FileOutputStream = new FileOutputStream(getPath(assetToken));
-    val channel = fos.getChannel
-    val numBytes: Long = data.length
-    val started: DateTime = DateTime.now
-    updateProgress(assetToken,numBytes, started, 0)
-    try {
 
 
 
-      val  buf:ByteBuffer = ByteBuffer.allocate(48);
-      buf.clear();
-      buf.put(data);
 
-      buf.flip();
 
-      while(buf.hasRemaining()) {
-        channel.write(buf);
-        updateProgress(assetToken,numBytes, started, buf.position())
-      }
 
-      removeProgress(assetToken)
-     
-      assetToken
-    } finally {
-      fos.close();
-      repo.remove(assetToken)
-    }
-  }
 
- //returns an option of future if the token isnt in the cache nothing happens
-   override def progress(assetToken: AssetToken): Future[Progress] =  Future {
-    val assetData:AssetData = repo.get(assetToken).get.assetData
-    val f: FileInputStream= new FileInputStream(getPath(assetToken));
-    val fc:FileChannel = f.getChannel
-    try {
-     new Progress(assetData, fc.size)
-    } finally {
-      fc.close()
-      f.close()
-    }
-  }
-}
+
+
+
+
+
+
+
+
+
+
 
 class QuarterMasterStorageRoutes(qmss:QuarterMasterStorageService) extends HttpServiceActor with RestRoutes with CommonDirectives with v2.JsonSupport {
 
@@ -272,15 +203,142 @@ class QuarterMasterStorageRoutes(qmss:QuarterMasterStorageService) extends HttpS
   }
 
   val quarterMasterStorageRoute = storeAssetRoute
-  def receive = runRoute(quarterMasterStorageRoute)
+  def receive = {
+    case StorageRequest(data,label) =>
+     complete(qmss.storeAsset(genToken(data))(data))
+    case token@AssetToken(_) =>
+      complete(StatusCodes.OK, qmss.getStatus(token).get)
+
+  }
+}
+
+class QuarterMasterStorageService(appConfig:AppConfig) extends StorageService {
+  def getStatus(token: AssetToken):Option[Status] = repo.get(token) map (Status.toStatus(_))
+
+  val repo:TrieMap[AssetToken,Progress] = new TrieMap[AssetToken, Progress]
+
+  def getPath(assetToken:AssetToken):String={
+    appConfig.sc.localPath ++ assetToken.token
+  }
+
+  def storeProgress = repo.put _
+
+  def getProgress = repo.get  _
+
+  def removeProgress(assetToken:AssetToken) ={
+    repo.remove(assetToken)
+  }
+
+  def updateProgress(assetToken:AssetToken, size:Long, started:DateTime, bytesWritten:Long) ={
+
+    repo.putIfAbsent(assetToken, new Progress(new AssetData(started, size), bytesWritten)).map(
+      (oldProgress:Progress) => repo.put(assetToken,Progress(oldProgress.assetData, bytesWritten))
+    )
+
+  }
+
+
+//this should fan out to other actors
+  override def storeAsset(assetToken: AssetToken)(data: Array[Byte]):Future[AssetToken] = Future{
+    // import spray.httpx.SprayJsonSupport._
+
+    val fos: FileOutputStream = new FileOutputStream(getPath(assetToken));
+    val channel = fos.getChannel
+    val numBytes: Long = data.length
+    val started: DateTime = DateTime.now
+    updateProgress(assetToken,numBytes, started, 0)
+    try {
+
+
+
+      val  buf:ByteBuffer = ByteBuffer.allocate(48);
+      buf.clear();
+      buf.put(data);
+
+      buf.flip();
+
+      while(buf.hasRemaining()) {
+        channel.write(buf);
+        updateProgress(assetToken,numBytes, started, buf.position())
+      }
+
+      removeProgress(assetToken)
+      assetToken
+
+    } finally {
+      fos.close();
+
+    }
+  }
+
+  //returns an option of future if the token isnt in the cache nothing happens
+  override def progress(assetToken: AssetToken): Future[Progress] =  Future {
+    val assetData:AssetData = repo.get(assetToken).get.assetData
+    val f: FileInputStream= new FileInputStream(getPath(assetToken));
+    val fc:FileChannel = f.getChannel
+    try {
+      new Progress(assetData, fc.size)
+    } finally {
+      fc.close()
+      f.close()
+    }
+  }
 }
 
 
+
+
+
+
+
+
+
+
+
+trait StorageService {
+
+  def storeAsset(token:AssetToken)(data:Array[Byte]):Future[AssetToken]
+  def progress(token:AssetToken):Future[Progress]
+
+}
+
+
+
+
+case class StorageRequest(data:Array[Byte], label : Int )
+
+
+//QuarterMasterConfig is like static config, probably not even useful for testing
+//services will all be  of type (Mapping) => (Mapping, A) where A is generic, these will be hoisted into a DSL at some point... maybe
+case class QuarterMasterService(appConfig:AppConfig) {
+  var mapping: Mapping = Await.result(loadMapping, 1000 millis)
+  //implicit val executionContext = appConfig.rmq.executionContext
+
+  def _updateAndBroadcastMapping(mappingStr:String):Future[(Mapping, Any)] =   (for {
+    mapping <- Mapping.fromJsonStr(mappingStr)
+    _ <- mapping.store(appConfig.mappingpath)
+    broadcaststatus <- mapping.broadcastUpdate(appConfig.rmq.qSender, appConfig.eventHeader)
+  } yield (mapping, broadcaststatus)).recover[(Mapping, Any)] {
+    case _ => (this.mapping, false)
+  }
+
+
+  def loadMapping():Future[Mapping] =
+    Mapping.load(appConfig.mappingpath)
+
+
+
+}
+case class AssetToken(token:String)
+
+
+
 class QuarterMasterRoutes(qms:QuarterMasterService)  extends HttpServiceActor
-    with RestRoutes with CommonDirectives with v2.JsonSupport {
+with RestRoutes with CommonDirectives with v2.JsonSupport {
 
-
+  implicit val timeout = AppConfig.timeout
   val appConfig = qms.appConfig
+  val storageActor = appConfig.hsc.arf.actorOf(Props(new QuarterMasterStorageRoutes(new QuarterMasterStorageService(appConfig))),"storageActor")
   val mappingRoute = path(appConfig.mappingUri) {
     get {
       complete(qms.mapping)
@@ -304,21 +362,28 @@ class QuarterMasterRoutes(qms:QuarterMasterService)  extends HttpServiceActor
 
         formFields('data.as[Array[Byte]], 'label.as[Int]) { (data, label) =>
           // import spray.httpx.SprayJsonSupport._
-          val fos: FileOutputStream = new FileOutputStream("test.png");
-          try {
-            fos.write(data);
-          } finally {
-            fos.close();
-          }
-          respondWithMediaType(MediaTypes.`application/json`) {
-            complete(StatusCodes.Accepted, "some status")
-          }
+          val sc = StorageRequest(data, label)
+          storageActor ! sc
+          complete(StatusCodes.Accepted)
         }
 
       }
     }
   }
 
+
+  val assetUploadStatus = path(appConfig.statusMappingUri) {
+    import akka.pattern.ask
+    get {
+      parameters('token.as[String]).as(AssetToken) {
+        (assetToken:AssetToken) =>
+      respondWithMediaType(MediaTypes.`application/json`) {
+        val f = storageActor ? assetToken
+        complete(StatusCodes.OK)
+      }
+      }
+    }
+  }
 
 
   //should return 202
@@ -335,21 +400,21 @@ class QuarterMasterRoutes(qms:QuarterMasterService)  extends HttpServiceActor
     }
 
   val reloadMappingRoute = path(appConfig.refreshMappingUri) {
-      get {
+    get {
 
-        respondWithMediaType(MediaTypes.`application/json`) {
-          val futureMapping:Future[Mapping] = qms.loadMapping.map((m:Mapping) => {
-            qms.mapping = m
-            m
-          })
-         complete(StatusCodes.OK, futureMapping)
+      respondWithMediaType(MediaTypes.`application/json`) {
+        val futureMapping:Future[Mapping] = qms.loadMapping.map((m:Mapping) => {
+          qms.mapping = m
+          m
+        })
+        complete(StatusCodes.OK, futureMapping)
 
-        }
       }
     }
+  }
 
- val quarterMasterRoute = mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ appConfig.hsc.healthService.routes ~ storeAssetRoute
- def receive = runRoute(quarterMasterRoute)
+  val quarterMasterRoute = mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ appConfig.hsc.healthService.routes ~ storeAssetRoute
+  def receive = runRoute(quarterMasterRoute)
 
 
 
@@ -361,29 +426,6 @@ class QuarterMasterRoutes(qms:QuarterMasterService)  extends HttpServiceActor
   }
 
 }
-
-
-case class AssetToken(token:String)
-
-trait StorageService {
-
-
-
-  def storeAsset(token:AssetToken)(data:Array[Byte]):Future[AssetToken]
-  def progress(token:AssetToken):Future[Progress]
-
-}
-
-
-
-
-
-
-
-
-
-
-
 
 
 
