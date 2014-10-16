@@ -47,13 +47,13 @@ case class AppConfig(rmq:RabbitMQConfig, hsc:HealthServiceConfig, sc: StorageCon
 object AppConfig {
   implicit val timeout= Timeout(50L, TimeUnit.SECONDS)
   def apply(c:Config,arf:ActorRefFactory)={
-    new AppConfig( RabbitMQConfig(c,arf),HealthServiceConfig(arf), new StorageConfig)
+    new AppConfig( RabbitMQConfig(c,arf),HealthServiceConfig(arf), new StorageConfig(arf))
   }
 
 
 }
 
-class StorageConfig {
+case class StorageConfig(arf:ActorRefFactory) {
   val localPath="/tmp/assets/"
 
 }

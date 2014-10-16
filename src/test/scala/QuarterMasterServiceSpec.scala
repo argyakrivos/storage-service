@@ -4,6 +4,7 @@
 package com.blinkbox.books.storageservice
 
 import com.blinkbox.books.config.Configuration
+import common.UrlTemplate
 import org.scalacheck.Arbitrary.arbitrary
 import org.scalacheck.Gen
 import org.scalacheck.Gen.alphaStr
@@ -11,6 +12,7 @@ import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.prop.GeneratorDrivenPropertyChecks
 import org.scalatest.{FlatSpecLike, Matchers}
 import spray.testkit.ScalatestRouteTest
+import worker.QuarterMasterStorageService
 
 import scala.concurrent.Future
 
