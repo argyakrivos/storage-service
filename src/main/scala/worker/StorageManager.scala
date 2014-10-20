@@ -2,7 +2,7 @@ package worker
 
 import akka.actor.Props
 import com.blinkbox.books.spray.{v2, Directives => CommonDirectives}
-import com.blinkbox.books.storageservice.{RestRoutes, AppConfig}
+import com.blinkbox.books.storageservice.AppConfig
 import common.{Progress, AssetToken, Status}
 import spray.http.StatusCodes
 import spray.http.StatusCodes._
@@ -14,6 +14,8 @@ import scala.concurrent.Future
 /**
  * Created by greg on 16/10/14.
  */
+
+//Need to rename , this should eventually start fan out this request to a host of servers
 class QuarterMasterStorageRoutes(qmss:QuarterMasterStorageService) extends HttpServiceActor with RestRoutes with CommonDirectives with v2.JsonSupport {
   val appConfig = qmss.appConfig
   val storageWorker = appConfig.hsc.arf.actorOf(Props(new QuarterMasterStorageWorkerRoutes(new QuarterMasterStorageWorkerService(appConfig))),"storageWorker")
@@ -31,7 +33,7 @@ class QuarterMasterStorageRoutes(qmss:QuarterMasterStorageService) extends HttpS
     case sr@StorageRequest(data,label) =>
       val token:AssetToken = qmss.genToken(data)
       storageWorker ! new StorageWorkerRequest(token, sr)
-      complete(token)
+      complete(StatusCodes.Accepted, token)
     case token@AssetToken(_) =>
       complete(StatusCodes.OK, qmss.getStatus(token).get)
 
