@@ -50,7 +50,7 @@ with Matchers with GeneratorDrivenPropertyChecks  with ScalaFutures {
     override def load(path: String): String = mappingJsonStr
   }
   val qms = new QuarterMasterService(appConfig)
-  val qmss = new QuarterMasterStorageService(appConfig)
+
 
   val templateGen2:Gen[JValue] = for {
     serviceName <- arbitrary[String]
@@ -71,6 +71,7 @@ with Matchers with GeneratorDrivenPropertyChecks  with ScalaFutures {
   "The quarterMasterService" should "update the mapping file " in {
 
     forAll(mappingGen, mappingGen2) { (oldMapping: Mapping, newMapping: JValue) =>
+      //ok this property will always apply but is left as a reference on how to filter properties
       ( !newMapping.extract[MappingRaw].templates.isEmpty || true ) ==> {
       val json: String = newMapping.toString
       val expected: String = compact(render(newMapping))
@@ -119,6 +120,11 @@ with Matchers with GeneratorDrivenPropertyChecks  with ScalaFutures {
       whenReady[String, Unit](f)((s: String) =>{ s  shouldEqual loadStr})
 
     }
+
+
+//    "the quarterMaster " should "upload an asset" in {
+//      forAll()
+//    }
   }
 
 

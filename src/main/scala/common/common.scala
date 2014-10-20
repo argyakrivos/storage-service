@@ -44,3 +44,7 @@ object Status  extends Ordering[Status]{
 }
 
 case class AssetToken(token:String)
+
+case class StorageRequest(data:Array[Byte], label : Int )
+
+case class StorageWorkerRequest(assetToken: AssetToken, storageRequest : StorageRequest)

@@ -3,81 +3,97 @@ package worker
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 
-import akka.actor.Props
-import com.blinkbox.books.spray.{v2, Directives => CommonDirectives}
+import com.blinkbox.books.spray.{Directives => CommonDirectives}
 import com.blinkbox.books.storageservice._
-import common.{AssetData, Progress, AssetToken, Status}
+import common._
 import spray.http.DateTime
-import spray.http.StatusCodes._
-import spray.routing._
-import scala.concurrent.ExecutionContext.Implicits.global
+
 import scala.collection.concurrent.TrieMap
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 
 /**
  * Created by greg on 16/10/14.
  */
-class QuarterMasterStorageWorkerRoutes(qmws:QuarterMasterStorageWorkerService) extends HttpServiceActor
-with RestRoutes with CommonDirectives with v2.JsonSupport {
-
-
-  val appConfig = qmws.appConfig
-  val storageWorker = appConfig.hsc.arf.actorOf(Props(new QuarterMasterStorageWorkerRoutes(new QuarterMasterStorageWorkerService(appConfig))),"storageWorker")
-  override def getAll: Route = {
-    get {
-      pathEndOrSingleSlash {
-        uncacheable(InternalServerError, None)
-      }
-    }
-  }
 
 
 
-  def receive = {
-    case StorageWorkerRequest(assetToken,StorageRequest(data, label)) =>
-      complete(qmws.storeAsset(assetToken,data))
-  }
+trait StorageService {
+
+  def storeAsset(token:AssetToken, data:Array[Byte], label:Int):Future[Set[AssetToken]]
+  def getProgress(token:AssetToken):Future[Set[Progress]]
+
 }
-case class StorageWorkerRequest(assetToken: AssetToken, storageRequest : StorageRequest)
-case class QuarterMasterStorageWorkerService(appConfig: AppConfig) extends StorageService {
 
+case class DelegatedAssetToken(delegateName:String, assetToken:AssetToken)
 
-  def getStatus(token: AssetToken):Option[Status] = repo.get(token) map (Status.toStatus(_))
+trait StorageDelegate {
+  val repo:TrieMap[DelegatedAssetToken,Progress]
 
-  val repo:TrieMap[AssetToken,Progress] = new TrieMap[AssetToken, Progress]
+  val name :String
 
-  def getPath(assetToken:AssetToken):String={
-    appConfig.sc.localPath ++ assetToken.token
-  }
-
+  def getStatus(token: DelegatedAssetToken):Option[Status] = repo.get(token) map (Status.toStatus(_))
 
   def genToken(data:Array[Byte]):AssetToken = new AssetToken(data.hashCode.toString)
 
   def storeProgress = repo.put _
 
-  def getProgress(assetToken:AssetToken) = repo.get(assetToken).get
+  def getProgress(assetToken:DelegatedAssetToken):Progress = repo.get(assetToken).get
 
-  def removeProgress(assetToken:AssetToken) ={
+  def removeProgress(assetToken:DelegatedAssetToken) ={
     repo.remove(assetToken)
   }
 
-  def updateProgress(assetToken:AssetToken, size:Long, started:DateTime, bytesWritten:Long) ={
-
+  def updateProgress(assetToken:DelegatedAssetToken, size:Long, started:DateTime, bytesWritten:Long) ={
     repo.putIfAbsent(assetToken, new Progress(new AssetData(started, size), bytesWritten)).map(
       (oldProgress:Progress) => repo.put(assetToken,Progress(oldProgress.assetData, bytesWritten))
     )
 
   }
+  def write(assetToken:AssetToken, data: Array[Byte]):AssetToken
+}
 
 
-  //this should fan out to other actors
-  override def storeAsset(assetToken:AssetToken, data: Array[Byte]):Future[AssetToken] = Future{
+case class QuarterMasterStorageWorker(swConfig:StorageWorkerConfig ) extends StorageService {
+
+
+  val delegates = swConfig.delegates
+  val repo = swConfig.repo
+
+  val delegateNames: Set[String] = swConfig.delegates.values.foldLeft[Set[String]](Set.empty)((a: Set[String], b: Set[StorageDelegate]) => (a.union(b.map((_.name)))))
+
+  def getDelegates(label: Int): Set[StorageDelegate] = delegates.get(label).getOrElse(Set.empty)
+
+
+  override def storeAsset(assetToken: AssetToken, data: Array[Byte], label: Int): Future[Set[AssetToken]] =
+    Future.traverse(getDelegates(label))((sd: StorageDelegate) => Future {
+      sd.write(assetToken, data)
+    })
+
+
+  def getProgress(assetToken: AssetToken): Future[Set[Progress]] = {
+  val futOfSetOfOption = Future.traverse(delegateNames)((delegateName: String) =>
+    Future {
+      repo.get(new DelegatedAssetToken(delegateName, assetToken))
+    }
+  )
+
+  futOfSetOfOption.map((_.flatten))
+}
+
+}
+
+
+case class LocalStorageDelegate(repo:TrieMap[DelegatedAssetToken,Progress],  path: String) extends StorageDelegate{
+  val name :String = "localStorage"
+  override def write(assetToken:AssetToken, data: Array[Byte]):AssetToken= {
     // import spray.httpx.SprayJsonSupport._
-    val fos: FileOutputStream = new FileOutputStream(getPath(assetToken));
+    val fos: FileOutputStream = new FileOutputStream(path);
     val channel = fos.getChannel
     val numBytes: Long = data.length
     val started: DateTime = DateTime.now
-    updateProgress(assetToken,numBytes, started, 0)
+    val delegatedToken = new DelegatedAssetToken(name, assetToken)
+    updateProgress(delegatedToken,numBytes, started, 0)
     try {
 
 
@@ -89,19 +105,20 @@ case class QuarterMasterStorageWorkerService(appConfig: AppConfig) extends Stora
       buf.flip();
 
       while(buf.hasRemaining()) {
-        channel.write(buf);
-        updateProgress(assetToken,numBytes, started, buf.position())
+        channel.write(buf)
+        updateProgress(delegatedToken,numBytes, started, buf.position())
       }
 
-      removeProgress(assetToken)
+      removeProgress(delegatedToken)
       assetToken
 
     } finally {
-      fos.close();
+      fos.close()
 
     }
   }
 
 
-
 }
+
+

@@ -2,13 +2,13 @@ package worker
 
 import java.io._
 
-import akka.actor.{ActorRef, Props}
+import akka.actor.ActorRef
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
 import com.blinkbox.books.messaging._
 import com.blinkbox.books.spray.{v2, Directives => CommonDirectives}
-import com.blinkbox.books.storageservice.{ AppConfig}
-import common.{AssetToken, UrlTemplate}
+import com.blinkbox.books.storageservice.AppConfig
+import common._
 import org.json4s.FieldSerializer
 import org.json4s.jackson.JsonMethods
 import org.json4s.jackson.Serialization._
@@ -17,6 +17,7 @@ import spray.http.{MediaTypes, StatusCodes}
 import spray.routing._
 import spray.util.LoggingContext
 
+import scala.collection.concurrent.TrieMap
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
@@ -113,8 +114,22 @@ trait RestRoutes extends HttpService {
 //QuarterMasterConfig is like static config, probably not even useful for testing
 //services will all be  of type (Mapping) => (Mapping, A) where A is generic, these will be hoisted into a DSL at some point... maybe
 case class QuarterMasterService(appConfig:AppConfig) {
+
+  val storageWorker = new QuarterMasterStorageWorker(appConfig.swc)
+  def storeAsset(bytes: Array[Byte], label: Int): Future[Any] ={
+    val assetToken = genToken(bytes)
+    storageWorker.storeAsset(assetToken,bytes, label)
+  }
+
   var mapping: Mapping = Await.result(Mapping.load(appConfig.mappingpath), 1000 millis)
   //implicit val executionContext = appConfig.rmq.executionContext
+  val repo:TrieMap[AssetToken,Progress] = new TrieMap[AssetToken, Progress]
+
+  def getStatus(token: AssetToken):Option[Status] = repo.get(token) map (Status.toStatus(_))
+
+
+
+  def genToken(data:Array[Byte]):AssetToken = new AssetToken(data.hashCode.toString)
 
   def _updateAndBroadcastMapping(mappingStr:String):Future[String] = {
     (for {
@@ -142,7 +157,7 @@ with RestRoutes with CommonDirectives with v2.JsonSupport {
 
   implicit val timeout = AppConfig.timeout
   val appConfig = qms.appConfig
-  val storageActor = appConfig.hsc.arf.actorOf(Props(new QuarterMasterStorageRoutes(new QuarterMasterStorageService(appConfig))),"storageActor")
+
   val mappingRoute = path(appConfig.mappingUri) {
     get {
       complete(qms.mapping)
@@ -160,13 +175,12 @@ with RestRoutes with CommonDirectives with v2.JsonSupport {
 
 
   val storeAssetRoute = {
-
     path("upload") {
       post {
         formFields('data.as[Array[Byte]], 'label.as[Int]) { (data, label) =>
           // import spray.httpx.SprayJsonSupport._
-          val sc = StorageRequest(data, label)
-          storageActor ! sc
+
+          qms.storeAsset(data, label)
           complete(StatusCodes.Accepted)
         }
       }
@@ -175,13 +189,11 @@ with RestRoutes with CommonDirectives with v2.JsonSupport {
 
 
   val assetUploadStatus = path(appConfig.statusMappingUri) {
-    import akka.pattern.ask
     get {
       parameters('token.as[String]).as(AssetToken) {
         (assetToken:AssetToken) =>
       respondWithMediaType(MediaTypes.`application/json`) {
-        val f = storageActor ? assetToken
-        complete(StatusCodes.OK)
+        complete(StatusCodes.OK, qms.getStatus(assetToken))
       }
       }
     }
