@@ -5,19 +5,25 @@ package com.blinkbox.books.storageservice
 
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
-import common.UrlTemplate
+import common.{DelegateType, Status, AssetToken, UrlTemplate}
 import org.json4s.JsonDSL._
 import org.json4s.jackson.JsonMethods._
 import org.json4s.{FieldSerializer, JValue}
+import org.mockito.Mockito
+import org.mockito.invocation.InvocationOnMock
+import org.mockito.stubbing.Answer
 import org.scalacheck.Arbitrary.arbitrary
 import org.scalacheck.Gen
 import org.scalacheck.Gen.alphaStr
+import org.scalacheck.Prop.BooleanOperators
 import org.scalatest.concurrent.ScalaFutures
+import org.scalatest.mock.MockitoSugar
 import org.scalatest.prop.GeneratorDrivenPropertyChecks
 import org.scalatest.{FlatSpecLike, Matchers}
+import spray.http.DateTime
 import spray.testkit.ScalatestRouteTest
 import worker._
-import org.scalacheck.Prop.{BooleanOperators}
+
 import scala.concurrent.Future
 
 
@@ -116,16 +122,61 @@ with Matchers with GeneratorDrivenPropertyChecks  with ScalaFutures {
         override def load(path: String): String = loadStr
       }
       qms.mapping = oldMapping
-      val f =qms.loadMapping
-      whenReady[String, Unit](f)((s: String) =>{ s  shouldEqual loadStr})
+      val f = qms.loadMapping
+      whenReady[String, Unit](f)((s: String) => {
+        s shouldEqual loadStr
+      })
 
     }
 
-
-//    "the quarterMaster " should "upload an asset" in {
-//      forAll()
-//    }
   }
+
+
+
+  "the quarterMaster " should "upload an asset" in {
+    import org.mockito.Matchers._
+    def getmockDelegate(name:String) = {
+      val mockDelegate = MockitoSugar.mock[StorageDelegate]
+      val delegateType = new DelegateType(name)
+      Mockito.when(mockDelegate.delegateType).thenReturn(delegateType)
+      Mockito.when(mockDelegate.write(any(),any())).thenAnswer( new Answer[(DelegateType,Status)]{
+        override def answer(invocation: InvocationOnMock): (DelegateType,Status) ={
+          println(s" $name writing")
+          invocation.getArguments.head match {
+          case assetTokenArg:AssetToken => (delegateType, new Status(DateTime.now, true))
+        }}
+
+      })
+      mockDelegate
+    }
+    forAll  { (data:Array[Byte], label:Int ) =>
+
+      val mockDelegate1 = getmockDelegate("mockDelegate1")
+      val mockDelegate2 = getmockDelegate("mockDelegate2")
+      val mockDelegate3 = getmockDelegate("mockDelegate3")
+
+println("*********")
+      val mockSwConfig: StorageWorkerConfig = new StorageWorkerConfig(Set(new DelegateConfig(mockDelegate1, Set(1)), new DelegateConfig(mockDelegate2, Set(1,2)), new DelegateConfig(mockDelegate3, Set(3))))
+
+      val newConfig = AppConfig(appConfig.rmq, appConfig.hsc, appConfig.sc, mockSwConfig)
+      val qms2 = new QuarterMasterService(newConfig)
+  //    Thread.sleep(1000)
+      val f = qms2.storeAsset(data, 1).flatMap[Map[DelegateType, Status]]((callFinished:(AssetToken, Future[Map[DelegateType,Status]])) => callFinished._2)
+      whenReady[Map[DelegateType,Status], Unit](f)((s: Map[DelegateType,Status]) => {
+        //this is bollocks, it returns a future but theres no guarantee that the workers have recieved the request
+
+        s.size should equal(2)
+        Mockito.verify(mockDelegate1).write(any[AssetToken],any[Array[Byte]])
+        Mockito.verify(mockDelegate2).write(any[AssetToken],any[Array[Byte]])
+      //  Mockito.verifyZeroInteractions(mockDelegate3)
+
+      })
+//      println(mockSwConfig.delegates)
+   }
+
+
+
+    }
 
 
 }

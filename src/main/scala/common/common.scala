@@ -38,13 +38,15 @@ object Status  extends Ordering[Status]{
       new Status(now + etaClicks, false)
     }
   }
-  //TODO complete the status calcualtion and serialise
-  def getStatus(progress:List[Progress]):Status = progress.foldRight[Status](neverStatus)(earlierStatus)
+
+  def getStatus(progress:List[Progress], name:DelegateType):Status = progress.foldRight[Status](neverStatus)(earlierStatus)
   //various f
 }
 
 case class AssetToken(token:String)
 
-case class StorageRequest(data:Array[Byte], label : Int )
+case class DelegateType(name:String)
 
-case class StorageWorkerRequest(assetToken: AssetToken, storageRequest : StorageRequest)
+case class DelegateKey(delegateType:DelegateType, assetToken:AssetToken)
+
+

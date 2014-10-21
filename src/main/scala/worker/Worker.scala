@@ -12,45 +12,41 @@ import scala.collection.concurrent.TrieMap
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 
-/**
- * Created by greg on 16/10/14.
- */
+
+
 
 
 
 trait StorageService {
 
-  def storeAsset(token:AssetToken, data:Array[Byte], label:Int):Future[Set[AssetToken]]
-  def getProgress(token:AssetToken):Future[Set[Progress]]
-
+  def storeAsset(token:AssetToken, data:Array[Byte], label:Int):Future[Map[DelegateType,Status]]
+  def getProgress(token:AssetToken):Future[Map[DelegateType,Progress]]
+  def getStatus(assetToken:AssetToken): Future[Map[DelegateType,Status]]
 }
 
-case class DelegatedAssetToken(delegateName:String, assetToken:AssetToken)
+
 
 trait StorageDelegate {
-  val repo:TrieMap[DelegatedAssetToken,Progress]
+  val repo:TrieMap[DelegateKey,Progress]
 
-  val name :String
+  val delegateType :DelegateType
 
-  def getStatus(token: DelegatedAssetToken):Option[Status] = repo.get(token) map (Status.toStatus(_))
+  def getStatus(token: AssetToken):Option[Status] = repo.get(new DelegateKey(delegateType, token)) map (Status.toStatus(_))
 
   def genToken(data:Array[Byte]):AssetToken = new AssetToken(data.hashCode.toString)
 
   def storeProgress = repo.put _
 
-  def getProgress(assetToken:DelegatedAssetToken):Progress = repo.get(assetToken).get
+  def getProgress(token:AssetToken):Progress = repo.get(new DelegateKey(delegateType, token)).get
 
-  def removeProgress(assetToken:DelegatedAssetToken) ={
-    repo.remove(assetToken)
+  def removeProgress(token:AssetToken) ={
+    repo.remove(new DelegateKey(delegateType, token))
   }
 
-  def updateProgress(assetToken:DelegatedAssetToken, size:Long, started:DateTime, bytesWritten:Long) ={
-    repo.putIfAbsent(assetToken, new Progress(new AssetData(started, size), bytesWritten)).map(
-      (oldProgress:Progress) => repo.put(assetToken,Progress(oldProgress.assetData, bytesWritten))
-    )
-
+  def updateProgress(token:AssetToken, size:Long, started:DateTime, bytesWritten:Long) ={
+    repo.putIfAbsent(new DelegateKey(delegateType, token), new Progress(new AssetData(started, size), bytesWritten))
   }
-  def write(assetToken:AssetToken, data: Array[Byte]):AssetToken
+  def write(assetToken:AssetToken, data: Array[Byte]):(DelegateType,Status)
 }
 
 
@@ -58,42 +54,46 @@ case class QuarterMasterStorageWorker(swConfig:StorageWorkerConfig ) extends Sto
 
 
   val delegates = swConfig.delegates
-  val repo = swConfig.repo
-
-  val delegateNames: Set[String] = swConfig.delegates.values.foldLeft[Set[String]](Set.empty)((a: Set[String], b: Set[StorageDelegate]) => (a.union(b.map((_.name)))))
-
-  def getDelegates(label: Int): Set[StorageDelegate] = delegates.get(label).getOrElse(Set.empty)
+  val delegateTypes = swConfig.delegateTypes
+  val repo = AppConfig.repo
 
 
-  override def storeAsset(assetToken: AssetToken, data: Array[Byte], label: Int): Future[Set[AssetToken]] =
-    Future.traverse(getDelegates(label))((sd: StorageDelegate) => Future {
+
+  private def getDelegates(label: Int):collection.immutable.Set[StorageDelegate] = delegates.get(label).getOrElse(collection.immutable.Set.empty)
+
+
+  override def storeAsset(assetToken: AssetToken, data: Array[Byte], label: Int): Future[Map[DelegateType,Status]] =
+  Future.traverse(getDelegates(label))((sd: StorageDelegate) => Future {
       sd.write(assetToken, data)
-    })
+    }).map((_.toMap))
 
 
-  def getProgress(assetToken: AssetToken): Future[Set[Progress]] = {
-  val futOfSetOfOption = Future.traverse(delegateNames)((delegateName: String) =>
-    Future {
-      repo.get(new DelegatedAssetToken(delegateName, assetToken))
-    }
-  )
 
-  futOfSetOfOption.map((_.flatten))
+  override def getStatus(assetToken:AssetToken): Future[Map[DelegateType,Status]] = for {
+    maybeTuples:Set[Option[(DelegateType,Status)]] <- Future.traverse(delegateTypes) ((dt: DelegateType) => Future {repo.get(new DelegateKey(dt, assetToken)).map((p:Progress) => (dt, Status.toStatus(p)))})
+    strippedTuples = maybeTuples.flatten
+  }yield(strippedTuples.toMap)
+
+
+  override def getProgress(assetToken: AssetToken): Future[Map[DelegateType,Progress]] =
+  for {
+     maybeTuples:Set[Option[(DelegateType,Progress)]] <- Future.traverse(delegateTypes) ((dt: DelegateType) => Future {repo.get(new DelegateKey(dt, assetToken)).map((dt, _))})
+    strippedTuples = maybeTuples.flatten
+  }yield(strippedTuples.toMap)
 }
 
-}
 
+case class LocalStorageDelegate(repo:TrieMap[DelegateKey,Progress],  path: String, delegateType:DelegateType) extends StorageDelegate{
 
-case class LocalStorageDelegate(repo:TrieMap[DelegatedAssetToken,Progress],  path: String) extends StorageDelegate{
-  val name :String = "localStorage"
-  override def write(assetToken:AssetToken, data: Array[Byte]):AssetToken= {
+  override def write(assetToken:AssetToken, data: Array[Byte]):(DelegateType,Status)= {
     // import spray.httpx.SprayJsonSupport._
     val fos: FileOutputStream = new FileOutputStream(path);
     val channel = fos.getChannel
     val numBytes: Long = data.length
     val started: DateTime = DateTime.now
-    val delegatedToken = new DelegatedAssetToken(name, assetToken)
-    updateProgress(delegatedToken,numBytes, started, 0)
+
+
+    updateProgress(assetToken,numBytes, started, 0)
     try {
 
 
@@ -106,11 +106,12 @@ case class LocalStorageDelegate(repo:TrieMap[DelegatedAssetToken,Progress],  pat
 
       while(buf.hasRemaining()) {
         channel.write(buf)
-        updateProgress(delegatedToken,numBytes, started, buf.position())
+        updateProgress(assetToken ,numBytes, started, buf.position())
       }
 
-      removeProgress(delegatedToken)
-      assetToken
+      val status = Status.toStatus(this.getProgress(assetToken))
+      removeProgress(assetToken)
+      (delegateType, status)
 
     } finally {
       fos.close()

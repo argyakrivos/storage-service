@@ -10,11 +10,12 @@ import com.blinkbox.books.rabbitmq.RabbitMqConfirmedPublisher.PublisherConfigura
 import com.blinkbox.books.rabbitmq.{RabbitMq, RabbitMqConfig, RabbitMqConfirmedPublisher}
 import com.blinkbox.books.spray.HealthCheckHttpService
 import com.typesafe.config.Config
-import common.Progress
+import common.{DelegateKey, DelegateType, Progress}
 import spray.http.Uri.Path
-import worker.{DelegatedAssetToken, LocalStorageDelegate, StorageDelegate}
+import worker.{LocalStorageDelegate, StorageDelegate}
 
 import scala.collection.concurrent.TrieMap
+import scala.collection.mutable.{HashMap, MultiMap}
 
 
 case class HealthServiceConfig(arf:ActorRefFactory){
@@ -34,13 +35,26 @@ case class RabbitMQConfig(c:Config, arf:ActorRefFactory){
 
   val executionContext=DiagnosticExecutionContext(arf.dispatcher)
 }
+case class DelegateConfig(delegate:StorageDelegate, labels:Set[Int])
 
-case class StorageWorkerConfig(){
-  val localStoragePath="/tmp/qm"
-  val repo = AppConfig.repo
-  private val localStorageDelegate: LocalStorageDelegate = new LocalStorageDelegate(repo, localStoragePath)
-  val delegates: collection.immutable.HashMap[Int, Set[StorageDelegate]] =
-    collection.immutable.HashMap[Int,Set[StorageDelegate]]( 1 -> Seq(localStorageDelegate).toSet)
+
+
+class StorageWorkerConfig(delegateConfigs:Set[DelegateConfig]){
+
+  def toImmutableMap[A,B](x:Map[A,collection.mutable.Set[B]]):Map[A,collection.immutable.Set[B]] = x.map((kv:((A,collection.mutable.Set[B]))) => (kv._1,kv._2.toSet)).toMap
+
+
+
+  val delegates:Map[Int,Set[StorageDelegate]] = getDelegates(delegateConfigs)
+
+    def getDelegates(delegateConfigs:Set[DelegateConfig]):Map[Int, Set[StorageDelegate]] = {
+      val tmpMultiMap : MultiMap[Int, StorageDelegate] = new HashMap[Int, collection.mutable.Set[StorageDelegate]] with MultiMap[Int, StorageDelegate]
+      delegateConfigs.map((dc: DelegateConfig) => dc.labels.map((label: Int) => tmpMultiMap.addBinding(label, dc.delegate)))
+     toImmutableMap[Int, StorageDelegate](tmpMultiMap.toMap)
+    }
+
+  val delegateTypes = delegateConfigs.map((dc:DelegateConfig) => dc.delegate.delegateType)
+
 
 }
 
@@ -56,9 +70,12 @@ case class AppConfig(rmq:RabbitMQConfig, hsc:HealthServiceConfig, sc: StorageCon
 
 object AppConfig {
   implicit val timeout= Timeout(50L, TimeUnit.SECONDS)
-  val repo:TrieMap[DelegatedAssetToken,Progress] = new TrieMap[DelegatedAssetToken, Progress]()
+  val repo:TrieMap[DelegateKey, Progress] = new TrieMap[DelegateKey, Progress]
+
   def apply(c:Config,arf:ActorRefFactory)={
-    new AppConfig( RabbitMQConfig(c,arf),HealthServiceConfig(arf), new StorageConfig(arf), new StorageWorkerConfig())
+
+    val deletgateConfigs = Set(DelegateConfig(new LocalStorageDelegate(repo, "/tmp/qm", new DelegateType("localStorage")), Set(1,3,4)))
+    new AppConfig( RabbitMQConfig(c,arf),HealthServiceConfig(arf), new StorageConfig(arf), new StorageWorkerConfig(deletgateConfigs))
   }
 
 

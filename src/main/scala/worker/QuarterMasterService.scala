@@ -17,7 +17,6 @@ import spray.http.{MediaTypes, StatusCodes}
 import spray.routing._
 import spray.util.LoggingContext
 
-import scala.collection.concurrent.TrieMap
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
@@ -116,16 +115,20 @@ trait RestRoutes extends HttpService {
 case class QuarterMasterService(appConfig:AppConfig) {
 
   val storageWorker = new QuarterMasterStorageWorker(appConfig.swc)
-  def storeAsset(bytes: Array[Byte], label: Int): Future[Any] ={
+  def storeAsset(bytes: Array[Byte], label: Int): Future[(AssetToken, Future[Map[DelegateType, Status]])] = Future{
     val assetToken = genToken(bytes)
-    storageWorker.storeAsset(assetToken,bytes, label)
+    val f:Future[Map[DelegateType, Status]]= storageWorker.storeAsset(assetToken,bytes, label)
+    (assetToken, f)
   }
 
   var mapping: Mapping = Await.result(Mapping.load(appConfig.mappingpath), 1000 millis)
   //implicit val executionContext = appConfig.rmq.executionContext
-  val repo:TrieMap[AssetToken,Progress] = new TrieMap[AssetToken, Progress]
 
-  def getStatus(token: AssetToken):Option[Status] = repo.get(token) map (Status.toStatus(_))
+
+  def getStatus(token: AssetToken):Future[Map[DelegateType,Status]] = {
+
+    storageWorker.getStatus(token)
+}
 
 
 
