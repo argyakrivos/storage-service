@@ -59,13 +59,17 @@ case class QuarterMasterStorageWorker(swConfig:StorageWorkerConfig ) extends Sto
 
 
 
-  private def getDelegates(label: Int):collection.immutable.Set[StorageDelegate] = delegates.get(label).getOrElse(collection.immutable.Set.empty)
+  private def getDelegates(label: Int):collection.immutable.Set[StorageDelegate] = {
+    val maybeDelegates: Option[Set[StorageDelegate]] = delegates.get(label)
+    val size = maybeDelegates.map((_.size)).getOrElse(0)
+    maybeDelegates.getOrElse(collection.immutable.Set.empty)
+  }
 
 
   override def storeAsset(assetToken: AssetToken, data: Array[Byte], label: Int): Future[Map[DelegateType,Status]] =
-  Future.traverse(getDelegates(label))((sd: StorageDelegate) => Future {
+  Future.traverse[StorageDelegate,(DelegateType,Status),Set](getDelegates(label))((sd: StorageDelegate) => Future {
       sd.write(assetToken, data)
-    }).map((_.toMap))
+    }).map((s:Set[(DelegateType,Status)])=>s.toMap)
 
 
 

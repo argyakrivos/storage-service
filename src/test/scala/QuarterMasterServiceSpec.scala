@@ -3,9 +3,11 @@
 
 package com.blinkbox.books.storageservice
 
+import java.util.UUID
+
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
-import common.{DelegateType, Status, AssetToken, UrlTemplate}
+import common.{AssetToken, DelegateType, Status, UrlTemplate}
 import org.json4s.JsonDSL._
 import org.json4s.jackson.JsonMethods._
 import org.json4s.{FieldSerializer, JValue}
@@ -69,7 +71,9 @@ with Matchers with GeneratorDrivenPropertyChecks  with ScalaFutures {
   } yield  ("extractor" -> extractor) ~ ("templates" -> templateList)
 
 
+
   val mappingGen = for {
+
     templateList <- Gen.listOf(templateGen)
     extractor <- arbitrary[String]
   } yield Mapping(MappingRaw(extractor, templateList))
@@ -133,50 +137,69 @@ with Matchers with GeneratorDrivenPropertyChecks  with ScalaFutures {
 
 
 
-  "the quarterMaster " should "upload an asset" in {
-    import org.mockito.Matchers._
-    def getmockDelegate(name:String) = {
-      val mockDelegate = MockitoSugar.mock[StorageDelegate]
-      val delegateType = new DelegateType(name)
-      Mockito.when(mockDelegate.delegateType).thenReturn(delegateType)
-      Mockito.when(mockDelegate.write(any(),any())).thenAnswer( new Answer[(DelegateType,Status)]{
-        override def answer(invocation: InvocationOnMock): (DelegateType,Status) ={
-          println(s" $name writing")
-          invocation.getArguments.head match {
+  import org.mockito.Matchers._
+  def getMockDelegate(name:String) = {
+    val mockDelegate = MockitoSugar.mock[StorageDelegate]
+    val delegateType = new DelegateType(name)
+    Mockito.when(mockDelegate.delegateType).thenReturn(delegateType)
+    Mockito.when(mockDelegate.write(any(),any())).thenAnswer( new Answer[(DelegateType,Status)]{
+      override def answer(invocation: InvocationOnMock): (DelegateType,Status) ={
+        invocation.getArguments.head match {
           case assetTokenArg:AssetToken => (delegateType, new Status(DateTime.now, true))
         }}
 
-      })
-      mockDelegate
-    }
-    forAll  { (data:Array[Byte], label:Int ) =>
+    })
+    mockDelegate
+  }
 
-      val mockDelegate1 = getmockDelegate("mockDelegate1")
-      val mockDelegate2 = getmockDelegate("mockDelegate2")
-      val mockDelegate3 = getmockDelegate("mockDelegate3")
+  val minlabel =0
+  val maxlabel =2000
+  val mockDelegateConfigGen = for{
 
-println("*********")
-      val mockSwConfig: StorageWorkerConfig = new StorageWorkerConfig(Set(new DelegateConfig(mockDelegate1, Set(1)), new DelegateConfig(mockDelegate2, Set(1,2)), new DelegateConfig(mockDelegate3, Set(3))))
+    labels <- Gen.listOf(Gen.chooseNum(minlabel, maxlabel))
+  }yield new DelegateConfig(getMockDelegate("mockingDelegate"+UUID.randomUUID().toString), labels.toSet)
 
-      val newConfig = AppConfig(appConfig.rmq, appConfig.hsc, appConfig.sc, mockSwConfig)
-      val qms2 = new QuarterMasterService(newConfig)
-  //    Thread.sleep(1000)
-      val f = qms2.storeAsset(data, 1).flatMap[Map[DelegateType, Status]]((callFinished:(AssetToken, Future[Map[DelegateType,Status]])) => callFinished._2)
-      whenReady[Map[DelegateType,Status], Unit](f)((s: Map[DelegateType,Status]) => {
-        //this is bollocks, it returns a future but theres no guarantee that the workers have recieved the request
+  val mockDelegateSetGen = for {
+   delegateConfigs<- Gen.listOfN(2000, mockDelegateConfigGen)
+  } yield delegateConfigs
 
-        s.size should equal(2)
-        Mockito.verify(mockDelegate1).write(any[AssetToken],any[Array[Byte]])
-        Mockito.verify(mockDelegate2).write(any[AssetToken],any[Array[Byte]])
+    "the quarterMaster " should "upload an asset" in {
+
+  forAll(mockDelegateSetGen, arbitrary[Array[Byte]], arbitrary[Int]) {
+    (mockDelegateConfigSet: List[DelegateConfig], data: Array[Byte], label: Int) =>
+//      ( mockDelegateConfigSet.map(_.delegate).distinct.size ==  mockDelegateConfigSet.map(_.delegate).distinct.toSet.size ) ==>
+        {
+
+
+
+    val mockSwConfig: StorageWorkerConfig = new StorageWorkerConfig(mockDelegateConfigSet.toSet)
+
+    val newConfig = AppConfig(appConfig.rmq, appConfig.hsc, appConfig.sc, mockSwConfig)
+    val qms2 = new QuarterMasterService(newConfig)
+
+    val f = qms2.storeAsset(data, label).flatMap[Map[DelegateType, Status]]((callFinished: (AssetToken, Future[Map[DelegateType, Status]])) => callFinished._2)
+    whenReady[Map[DelegateType, Status], Boolean](f)((s: Map[DelegateType, Status]) => {
+
+
+      val matchingDelegates = mockDelegateConfigSet.filter((dc: DelegateConfig) => dc.labels.contains(label)).map(_.delegate)
+      val nonMatchingDelegates = mockDelegateConfigSet.filter((dc: DelegateConfig) => !dc.labels.contains(label)).map(_.delegate)
+      val size: Int = s.size
+      val msize: Int = matchingDelegates.size
+
+      matchingDelegates.map((mockDelegate: StorageDelegate) => Mockito.verify(mockDelegate, Mockito.times(1)).write(any[AssetToken], any[Array[Byte]]))
+      nonMatchingDelegates.map((mockDelegate: StorageDelegate) => Mockito.verify(mockDelegate, Mockito.times(0)).write(any[AssetToken], any[Array[Byte]]))
+
+      size shouldBe msize
+      size == msize
       //  Mockito.verifyZeroInteractions(mockDelegate3)
 
-      })
-//      println(mockSwConfig.delegates)
-   }
+    })
+  }}
 
 
 
     }
+
 
 
 }

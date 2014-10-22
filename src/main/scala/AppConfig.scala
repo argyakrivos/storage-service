@@ -56,6 +56,8 @@ class StorageWorkerConfig(delegateConfigs:Set[DelegateConfig]){
   val delegateTypes = delegateConfigs.map((dc:DelegateConfig) => dc.delegate.delegateType)
 
 
+
+
 }
 
 case class AppConfig(rmq:RabbitMQConfig, hsc:HealthServiceConfig, sc: StorageConfig, swc:StorageWorkerConfig){
