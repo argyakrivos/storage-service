@@ -38,7 +38,7 @@ case class RabbitMQConfig(c:Config, arf:ActorRefFactory){
 case class DelegateConfig(delegate:StorageDelegate, labels:Set[Int])
 
 
-
+//TODO: Really important that there isnt more than 1 delegate type in each set
 class StorageWorkerConfig(delegateConfigs:Set[DelegateConfig]){
 
   def toImmutableMap[A,B](x:Map[A,collection.mutable.Set[B]]):Map[A,collection.immutable.Set[B]] = x.map((kv:((A,collection.mutable.Set[B]))) => (kv._1,kv._2.toSet)).toMap
@@ -54,6 +54,8 @@ class StorageWorkerConfig(delegateConfigs:Set[DelegateConfig]){
     }
 
   val delegateTypes = delegateConfigs.map((dc:DelegateConfig) => dc.delegate.delegateType)
+
+  val delegateType2StorageDelegate:Map[DelegateType, StorageDelegate] = delegates.values.flatten.map((sd:StorageDelegate) => (sd.delegateType,sd)).toMap
 
 
 

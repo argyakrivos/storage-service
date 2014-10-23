@@ -153,14 +153,14 @@ with Matchers with GeneratorDrivenPropertyChecks  with ScalaFutures {
   }
 
   val minlabel =0
-  val maxlabel =2000
+  val maxlabel =200
   val mockDelegateConfigGen = for{
 
     labels <- Gen.listOf(Gen.chooseNum(minlabel, maxlabel))
   }yield new DelegateConfig(getMockDelegate("mockingDelegate"+UUID.randomUUID().toString), labels.toSet)
 
   val mockDelegateSetGen = for {
-   delegateConfigs<- Gen.listOfN(2000, mockDelegateConfigGen)
+   delegateConfigs<- Gen.listOfN(10, mockDelegateConfigGen)
   } yield delegateConfigs
 
     "the quarterMaster " should "upload an asset" in {

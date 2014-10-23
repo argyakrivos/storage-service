@@ -1,6 +1,6 @@
 package worker
 
-import java.io.FileOutputStream
+import java.io.{File, FileOutputStream}
 import java.nio.ByteBuffer
 
 import com.blinkbox.books.spray.{Directives => CommonDirectives}
@@ -22,6 +22,7 @@ trait StorageService {
   def storeAsset(token:AssetToken, data:Array[Byte], label:Int):Future[Map[DelegateType,Status]]
   def getProgress(token:AssetToken):Future[Map[DelegateType,Progress]]
   def getStatus(assetToken:AssetToken): Future[Map[DelegateType,Status]]
+  def cleanUp(assetToken:AssetToken): Future[Map[DelegateType,Status]]
 }
 
 
@@ -35,6 +36,9 @@ trait StorageDelegate {
 
   def genToken(data:Array[Byte]):AssetToken = new AssetToken(data.hashCode.toString)
 
+
+  //TODO: the following signatures should be wrapped in futures , however this is causing class cast exceptions , probably in the
+  // QuarterMaster Storage Service needs , investigating
   def storeProgress = repo.put _
 
   def getProgress(token:AssetToken):Progress = repo.get(new DelegateKey(delegateType, token)).get
@@ -47,6 +51,8 @@ trait StorageDelegate {
     repo.putIfAbsent(new DelegateKey(delegateType, token), new Progress(new AssetData(started, size), bytesWritten))
   }
   def write(assetToken:AssetToken, data: Array[Byte]):(DelegateType,Status)
+
+  def cleanUp(assetToken:AssetToken):(DelegateType, Status)
 }
 
 
@@ -67,14 +73,15 @@ case class QuarterMasterStorageWorker(swConfig:StorageWorkerConfig ) extends Sto
 
 
   override def storeAsset(assetToken: AssetToken, data: Array[Byte], label: Int): Future[Map[DelegateType,Status]] =
-  Future.traverse[StorageDelegate,(DelegateType,Status),Set](getDelegates(label))((sd: StorageDelegate) => Future {
-      sd.write(assetToken, data)
-    }).map((s:Set[(DelegateType,Status)])=>s.toMap)
+  Future.traverse[StorageDelegate,(DelegateType,Status),Set](getDelegates(label))((sd: StorageDelegate) =>
+     Future{ sd.write(assetToken, data)}
+    ).map((s:Set[(DelegateType,Status)])=>s.toMap)
 
 
 
   override def getStatus(assetToken:AssetToken): Future[Map[DelegateType,Status]] = for {
-    maybeTuples:Set[Option[(DelegateType,Status)]] <- Future.traverse(delegateTypes) ((dt: DelegateType) => Future {repo.get(new DelegateKey(dt, assetToken)).map((p:Progress) => (dt, Status.toStatus(p)))})
+    maybeTuples:Set[Option[(DelegateType,Status)]] <- Future.traverse(delegateTypes) ((dt: DelegateType) =>
+      Future {repo.get(new DelegateKey(dt, assetToken)).map((p:Progress) => (dt, Status.toStatus(p)))})
     strippedTuples = maybeTuples.flatten
   }yield(strippedTuples.toMap)
 
@@ -84,14 +91,23 @@ case class QuarterMasterStorageWorker(swConfig:StorageWorkerConfig ) extends Sto
      maybeTuples:Set[Option[(DelegateType,Progress)]] <- Future.traverse(delegateTypes) ((dt: DelegateType) => Future {repo.get(new DelegateKey(dt, assetToken)).map((dt, _))})
     strippedTuples = maybeTuples.flatten
   }yield(strippedTuples.toMap)
+
+  override def cleanUp(assetToken: AssetToken): Future[Map[DelegateType, Status]] =
+    for {
+    types2Status <- getProgress(assetToken)
+    result <- Future.traverse(types2Status.keySet)((dt: DelegateType) =>
+      Future {swConfig.delegateType2StorageDelegate(dt).cleanUp(assetToken)})
+    }yield(result.toMap)
 }
 
 
 case class LocalStorageDelegate(repo:TrieMap[DelegateKey,Progress],  path: String, delegateType:DelegateType) extends StorageDelegate{
 
+  def getPath(assetToken:AssetToken) = path + File.separator + assetToken.toFileString
+
   override def write(assetToken:AssetToken, data: Array[Byte]):(DelegateType,Status)= {
     // import spray.httpx.SprayJsonSupport._
-    val fos: FileOutputStream = new FileOutputStream(path);
+    val fos: FileOutputStream = new FileOutputStream(getPath(assetToken));
     val channel = fos.getChannel
     val numBytes: Long = data.length
     val started: DateTime = DateTime.now
@@ -123,7 +139,22 @@ case class LocalStorageDelegate(repo:TrieMap[DelegateKey,Progress],  path: Strin
     }
   }
 
+  override def cleanUp(assetToken: AssetToken): (DelegateType, Status) =
+    {
 
+    val file: File = new File(getPath(assetToken));
+
+    try {
+
+      file.delete
+      removeProgress(assetToken)
+      (delegateType, Status.neverStatus)
+
+    } finally {
+      //file.close
+
+    }
+  }
 }
 
 

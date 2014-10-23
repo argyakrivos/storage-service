@@ -113,6 +113,11 @@ trait RestRoutes extends HttpService {
 //QuarterMasterConfig is like static config, probably not even useful for testing
 //services will all be  of type (Mapping) => (Mapping, A) where A is generic, these will be hoisted into a DSL at some point... maybe
 case class QuarterMasterService(appConfig:AppConfig) {
+  def cleanUp(bytes: Array[Byte]):Future[Map[DelegateType,Status]] = {
+    val assetToken = genToken(bytes)
+    storageWorker.cleanUp(assetToken)
+  }
+
 
   val storageWorker = new QuarterMasterStorageWorker(appConfig.swc)
   def storeAsset(bytes: Array[Byte], label: Int): Future[(AssetToken, Future[Map[DelegateType, Status]])] = Future{
@@ -183,12 +188,24 @@ with RestRoutes with CommonDirectives with v2.JsonSupport {
         formFields('data.as[Array[Byte]], 'label.as[Int]) { (data, label) =>
           // import spray.httpx.SprayJsonSupport._
 
-          qms.storeAsset(data, label)
-          complete(StatusCodes.Accepted)
+
+          type StorageRequestReturnType = (AssetToken, Future[Map[DelegateType, Status]])
+
+          onComplete(qms.storeAsset(data, label)) {
+            case scala.util.Success(value) => complete(StatusCodes.Accepted, value._1)
+
+            case scala.util.Failure(ex)    => {
+              //TODO: no reporting on the outcome of cleaning up, if it fails it can only be logged
+              qms.cleanUp(data)
+              complete(StatusCodes.InternalServerError, s"An error occurred: ${ex.getMessage}")
+            }
+            }
+          }
+
         }
       }
     }
-  }
+
 
 
   val assetUploadStatus = path(appConfig.statusMappingUri) {

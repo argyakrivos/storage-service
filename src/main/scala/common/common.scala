@@ -43,7 +43,11 @@ object Status  extends Ordering[Status]{
   //various f
 }
 
-case class AssetToken(token:String)
+case class AssetToken(token:String) {
+
+  def toFileString():String = token
+
+}
 
 case class DelegateType(name:String)
 

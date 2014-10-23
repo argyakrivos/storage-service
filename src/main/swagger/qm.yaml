@@ -56,8 +56,8 @@ paths:
       tags:
         - Mapping
       responses:
-        200:
-          description: resource added successfully
+        202:
+          description: resource request accepted
           schema:
             $ref: ProviderStatusResponse
 # todo: fill out with json error objects
