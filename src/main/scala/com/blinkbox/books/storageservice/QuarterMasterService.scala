@@ -1,4 +1,4 @@
-package worker
+package com.blinkbox.books.storageservice
 
 import java.io._
 
@@ -7,8 +7,6 @@ import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
 import com.blinkbox.books.messaging._
 import com.blinkbox.books.spray.{v2, Directives => CommonDirectives}
-import com.blinkbox.books.storageservice.AppConfig
-import common._
 import org.json4s.FieldSerializer
 import org.json4s.jackson.JsonMethods
 import org.json4s.jackson.Serialization._

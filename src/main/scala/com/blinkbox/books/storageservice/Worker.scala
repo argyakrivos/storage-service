@@ -1,11 +1,9 @@
-package worker
+package com.blinkbox.books.storageservice
 
 import java.io.{File, FileOutputStream}
 import java.nio.ByteBuffer
 
 import com.blinkbox.books.spray.{Directives => CommonDirectives}
-import com.blinkbox.books.storageservice._
-import common._
 import spray.http.DateTime
 
 import scala.collection.concurrent.TrieMap
@@ -124,7 +122,7 @@ case class LocalStorageDelegate(repo: TrieMap[DelegateKey, Progress], path: Stri
   override def cleanUp(assetToken: AssetToken): Future[(DelegateType, Status)] =
     Future {
       val file: File = new File(getPath(assetToken))
-      
+
         file.delete
         removeProgress(assetToken)
         (delegateType, Status.neverStatus)

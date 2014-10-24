@@ -1,16 +1,13 @@
-
-
-
 package com.blinkbox.books.storageservice
 
 import java.util.UUID
 
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
-import common.{AssetToken, DelegateType, Status, UrlTemplate}
 import org.json4s.JsonDSL._
 import org.json4s.jackson.JsonMethods._
 import org.json4s.{FieldSerializer, JValue}
+import org.mockito.Matchers._
 import org.mockito.Mockito
 import org.mockito.invocation.InvocationOnMock
 import org.mockito.stubbing.Answer
@@ -24,9 +21,6 @@ import org.scalatest.prop.GeneratorDrivenPropertyChecks
 import org.scalatest.{FlatSpecLike, Matchers}
 import spray.http.DateTime
 import spray.testkit.ScalatestRouteTest
-import worker._
-import org.mockito.Matchers._
-
 import scala.concurrent.Future
 import scala.util.Random
 

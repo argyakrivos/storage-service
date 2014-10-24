@@ -1,7 +1,6 @@
 package com.blinkbox.books.storageservice
 
 import java.util.concurrent.TimeUnit
-
 import akka.actor.{ActorRefFactory, Props}
 import akka.util.Timeout
 import com.blinkbox.books.logging.DiagnosticExecutionContext
@@ -10,13 +9,9 @@ import com.blinkbox.books.rabbitmq.RabbitMqConfirmedPublisher.PublisherConfigura
 import com.blinkbox.books.rabbitmq.{RabbitMq, RabbitMqConfig, RabbitMqConfirmedPublisher}
 import com.blinkbox.books.spray.HealthCheckHttpService
 import com.typesafe.config.Config
-import common.{DelegateKey, DelegateType, Progress}
 import spray.http.Uri.Path
-import worker.{LocalStorageDelegate, StorageDelegate}
-
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable.{HashMap, MultiMap}
-
 
 case class HealthServiceConfig(arf: ActorRefFactory) {
   val healthService =

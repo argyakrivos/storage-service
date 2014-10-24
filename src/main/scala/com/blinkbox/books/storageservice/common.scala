@@ -1,4 +1,4 @@
-package common
+package com.blinkbox.books.storageservice
 
 import spray.http.DateTime
 
