@@ -110,12 +110,9 @@ trait RestRoutes extends HttpService {
 }
 
 
-//QuarterMasterConfig is like static config, probably not even useful for testing
-//services will all be  of type (Mapping) => (Mapping, A) where A is generic, these will be hoisted into a DSL at some point... maybe
 case class QuarterMasterService(appConfig:AppConfig) {
-  def cleanUp(bytes: Array[Byte]):Future[Map[DelegateType,Status]] = {
-    val assetToken = genToken(bytes)
-    storageWorker.cleanUp(assetToken)
+  def cleanUp(assetToken:AssetToken,label:Int):Future[Map[DelegateType,Status]] = {
+    storageWorker.cleanUp(assetToken, label).map((_.toMap))
   }
 
 
@@ -123,6 +120,7 @@ case class QuarterMasterService(appConfig:AppConfig) {
   def storeAsset(bytes: Array[Byte], label: Int): Future[(AssetToken, Future[Map[DelegateType, Status]])] = Future{
     val assetToken = genToken(bytes)
     val f:Future[Map[DelegateType, Status]]= storageWorker.storeAsset(assetToken,bytes, label)
+
     (assetToken, f)
   }
 
@@ -181,7 +179,9 @@ with RestRoutes with CommonDirectives with v2.JsonSupport {
   }
 
 
-
+// if the request fails then we are in two situations, either  no requests have succeeded
+// or some requests have succeeded, if no requests have succeeded then there is nothing to clean up
+// if some requests succeed, then the recovery in qms.storeAsset cleans up
   val storeAssetRoute = {
     path("upload") {
       post {
@@ -191,15 +191,10 @@ with RestRoutes with CommonDirectives with v2.JsonSupport {
 
           type StorageRequestReturnType = (AssetToken, Future[Map[DelegateType, Status]])
 
-          onComplete(qms.storeAsset(data, label)) {
-            case scala.util.Success(value) => complete(StatusCodes.Accepted, value._1)
+          val f:Future[AssetToken] = (qms.storeAsset(data, label)).map[AssetToken]((_._1))
+          complete(StatusCodes.Accepted, f)
 
-            case scala.util.Failure(ex)    => {
-              //TODO: no reporting on the outcome of cleaning up, if it fails it can only be logged
-              qms.cleanUp(data)
-              complete(StatusCodes.InternalServerError, s"An error occurred: ${ex.getMessage}")
-            }
-            }
+
           }
 
         }

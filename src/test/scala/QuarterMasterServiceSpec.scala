@@ -27,8 +27,7 @@ import spray.testkit.ScalatestRouteTest
 import worker._
 
 import scala.concurrent.Future
-
-
+import scala.util.Random
 
 
 /**
@@ -77,6 +76,10 @@ with Matchers with GeneratorDrivenPropertyChecks  with ScalaFutures {
     templateList <- Gen.listOf(templateGen)
     extractor <- arbitrary[String]
   } yield Mapping(MappingRaw(extractor, templateList))
+
+
+
+
 
   "The quarterMasterService" should "update the mapping file " in {
 
@@ -136,38 +139,75 @@ with Matchers with GeneratorDrivenPropertyChecks  with ScalaFutures {
   }
 
 
+  
+  def successfulWriteAnswer(delegateType:DelegateType):Answer[Future[(DelegateType,Status)]] = new Answer[Future[(DelegateType,Status)]]{
+    override def answer(invocation: InvocationOnMock):Future[(DelegateType,Status)] = {
+      invocation.getArguments.head match {
+        case assetTokenArg:AssetToken => Future{(delegateType, new Status(DateTime.now, true))}
+      }}
+
+  }
+
+  def failingWriteAnswer(e:Throwable):Answer[Future[(DelegateType,Status)]] = new Answer[Future[(DelegateType,Status)]]{
+    override def answer(invocation: InvocationOnMock): Future [(DelegateType,Status)] =  Future{
+      throw e
+    }
+  }
 
   import org.mockito.Matchers._
-  def getMockDelegate(name:String) = {
+  def getMockDelegate(delegateType:DelegateType,answer: Answer[Future[(DelegateType,Status)]]) = {
     val mockDelegate = MockitoSugar.mock[StorageDelegate]
-    val delegateType = new DelegateType(name)
+    Mockito.when(mockDelegate.cleanUp(any[AssetToken])).thenReturn(Future.successful({(delegateType,Status.neverStatus)}))
     Mockito.when(mockDelegate.delegateType).thenReturn(delegateType)
-    Mockito.when(mockDelegate.write(any(),any())).thenAnswer( new Answer[(DelegateType,Status)]{
-      override def answer(invocation: InvocationOnMock): (DelegateType,Status) ={
-        invocation.getArguments.head match {
-          case assetTokenArg:AssetToken => (delegateType, new Status(DateTime.now, true))
-        }}
-
-    })
+    Mockito.when(mockDelegate.write(any(),any())).thenAnswer(answer )
     mockDelegate
   }
 
+  def getFailingDelegate(delegateType:DelegateType,  e:Exception) = {
+    val mockDelegate = MockitoSugar.mock[StorageDelegate]
+   Mockito.when(mockDelegate.cleanUp(any[AssetToken])).thenReturn(Future.successful({(delegateType,Status.neverStatus)}))
+    Mockito.when(mockDelegate.write(any(),any())).thenReturn(Future.failed(e))
+    mockDelegate
+
+  }
+
   val minlabel =0
-  val maxlabel =200
-  val mockDelegateConfigGen = for{
+  val maxlabel =3
 
+  val mockSuccessfulDelegateConfigGen = for{
     labels <- Gen.listOf(Gen.chooseNum(minlabel, maxlabel))
-  }yield new DelegateConfig(getMockDelegate("mockingDelegate"+UUID.randomUUID().toString), labels.toSet)
+    delegateType = DelegateType("mockingDelegate"+UUID.randomUUID().toString)
+  }yield new DelegateConfig(getMockDelegate(delegateType, successfulWriteAnswer(delegateType)), labels.toSet)
 
-  val mockDelegateSetGen = for {
-   delegateConfigs<- Gen.listOfN(10, mockDelegateConfigGen)
-  } yield delegateConfigs
+  val mockFailingDelegateConfigGen = for{
+    labels <- Gen.listOf(Gen.chooseNum(minlabel, maxlabel))
+    delegateType = DelegateType("mockingDelegate"+UUID.randomUUID().toString)
+  }yield new DelegateConfig(getFailingDelegate(delegateType, new IllegalArgumentException), labels.toSet)
 
-    "the quarterMaster " should "upload an asset" in {
+  val mockSuccessfulDelegateConfigSetGen = for{
+    successfulDelegateConfigs <-Gen.listOf(mockSuccessfulDelegateConfigGen)
+  } yield successfulDelegateConfigs.toSet
 
-  forAll(mockDelegateSetGen, arbitrary[Array[Byte]], arbitrary[Int]) {
-    (mockDelegateConfigSet: List[DelegateConfig], data: Array[Byte], label: Int) =>
-//      ( mockDelegateConfigSet.map(_.delegate).distinct.size ==  mockDelegateConfigSet.map(_.delegate).distinct.toSet.size ) ==>
+
+  val mockFailingDelegateSetGen = for{
+
+    failingWriters <- Gen.nonEmptyListOf( mockFailingDelegateConfigGen)
+
+  } yield failingWriters.toSet
+
+
+  val mockFailingMixedDelegateSetGen = for{
+    successfulDelegateConfigs <-Gen.listOf(mockSuccessfulDelegateConfigGen)
+    failingDelegateConfigs <- Gen.listOf( mockFailingDelegateConfigGen)
+
+  } yield Random.shuffle(failingDelegateConfigs.union(successfulDelegateConfigs))
+
+  "the quarterMaster " should "upload  assets" in {
+
+
+  forAll(mockSuccessfulDelegateConfigSetGen, arbitrary[Array[Byte]], arbitrary[Int]) {
+    (mockDelegateConfigSet: Set[DelegateConfig], data: Array[Byte], label: Int) =>
+
         {
 
 
@@ -199,6 +239,50 @@ with Matchers with GeneratorDrivenPropertyChecks  with ScalaFutures {
 
 
     }
+
+
+
+
+  "the quarterMaster " should "clean up  failed assets" in {
+
+
+
+    forAll( mockSuccessfulDelegateConfigSetGen, mockFailingDelegateSetGen, arbitrary[Array[Byte]], arbitrary[Int]) {
+      (successfulDelegateSet: Set[DelegateConfig], mockFailingDelegateSet: Set[DelegateConfig], data: Array[Byte], label: Int) =>
+
+      {
+
+        val randomSuccessAndFailingWriterConfigs =Random.shuffle(successfulDelegateSet.union(mockFailingDelegateSet))
+
+        val mockSwConfig: StorageWorkerConfig = new StorageWorkerConfig(randomSuccessAndFailingWriterConfigs.toSet)
+
+        val newConfig = AppConfig(appConfig.rmq, appConfig.hsc, appConfig.sc, mockSwConfig)
+        val qms2 = new QuarterMasterService(newConfig)
+
+        val f :Future[Map[DelegateType, Status]]= qms2.storeAsset(data, label).flatMap((callFinished: (AssetToken, Future[Map[DelegateType, Status]])) => callFinished._2)
+
+        whenReady[Map[DelegateType, Status], Boolean](f)((s: Map[DelegateType, Status]) => {
+
+
+          val matchingDelegates = mockFailingDelegateSet.filter((dc: DelegateConfig) => dc.labels.contains(label)).map(_.delegate)
+          val nonMatchingDelegates = mockFailingDelegateSet.filter((dc: DelegateConfig) => !dc.labels.contains(label)).map(_.delegate)
+          val size: Int = s.size
+          val msize: Int = matchingDelegates.size
+
+          matchingDelegates.map((mockDelegate: StorageDelegate) => Mockito.verify(mockDelegate, Mockito.times(1)).write(any[AssetToken], any[Array[Byte]]))
+          nonMatchingDelegates.map((mockDelegate: StorageDelegate) => Mockito.verify(mockDelegate, Mockito.times(0)).write(any[AssetToken], any[Array[Byte]]))
+          matchingDelegates.map((mockDelegate: StorageDelegate) => Mockito.verify(mockDelegate, Mockito.times(1)).cleanUp(any[AssetToken]))
+          nonMatchingDelegates.map((mockDelegate: StorageDelegate) => Mockito.verify(mockDelegate, Mockito.times(0)).cleanUp(any[AssetToken]))
+
+
+          true
+        })
+      }}
+
+
+
+  }
+
 
 
 

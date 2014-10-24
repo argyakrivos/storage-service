@@ -55,7 +55,7 @@ class StorageWorkerConfig(delegateConfigs:Set[DelegateConfig]){
 
   val delegateTypes = delegateConfigs.map((dc:DelegateConfig) => dc.delegate.delegateType)
 
-  val delegateType2StorageDelegate:Map[DelegateType, StorageDelegate] = delegates.values.flatten.map((sd:StorageDelegate) => (sd.delegateType,sd)).toMap
+
 
 
 
