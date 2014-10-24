@@ -40,13 +40,10 @@ object Status  extends Ordering[Status]{
   }
 
   def getStatus(progress:List[Progress], name:DelegateType):Status = progress.foldRight[Status](neverStatus)(earlierStatus)
-  //various f
 }
 
 case class AssetToken(token:String) {
-
   def toFileString():String = token
-
 }
 
 case class DelegateType(name:String)

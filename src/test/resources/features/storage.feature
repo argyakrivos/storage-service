@@ -15,7 +15,6 @@ And the response Json has the following attributes:
 | attribute | type   | description                                                                                                          |
 | url       | String | some mapped url that can be transformed by the mapping file so that it can retrieve a resource from the service      |
 
-
 Scenario: Storing a resource (partial)
 Given the QuarterMaster is up
 And only some of all the storage destinations are working
@@ -26,8 +25,6 @@ And the response Json has the following attributes only for all of the resources
 | attribute | type   | description                                                                                                          |
 | url       | String | some mapped url that can be transformed by the mapping file so that it can retrieve a resource from the service      |
 
-
-
 Scenario: Failed to store a Resource
 Given the QuarterMaster is up
 And none of the storage resources are working
@@ -35,7 +32,6 @@ And there is a binary resource to be stored with a resource id of <id>
 When I request that QuarterMaster Stores a Resource
 Then the client is given a status error
 
-    
 @smoke
 Scenario: Trying to get a book with a nonexistent resource
 When I request a resource that doesnt exist

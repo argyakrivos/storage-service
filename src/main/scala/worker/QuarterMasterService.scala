@@ -27,82 +27,64 @@ trait MappingLoader {
   def load(path: String): String
 }
 
-
-class FileMappingLoader  extends MappingLoader{
- override def load(path: String): String =
+class FileMappingLoader extends MappingLoader {
+  override def load(path: String): String =
     Source.fromFile(path).mkString("")
 }
 
-
 object Mapping extends JsonMethods with v2.JsonSupport {
-
   implicit val formats = DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
-
   val EXTRACTOR_NAME = "extractor"
   val TEMPLATES_NAME = "templates"
   var loader: MappingLoader = new FileMappingLoader
 
-
   def fromJsonStr(jsonString: String): Mapping = {
-      val m = read[Option[MappingRaw]](jsonString).map(new Mapping(_))
-      m.getOrElse(throw new IllegalArgumentException(s"cant parse jsonString: $jsonString"))
-
+    val m = read[Option[MappingRaw]](jsonString).map(new Mapping(_))
+    m.getOrElse(throw new IllegalArgumentException(s"cant parse jsonString: $jsonString"))
   }
-
 
   def toJson(m: Mapping): String = {
     import org.json4s.JsonDSL._
     val mr = m.m
     val json =
-      ("extractor" -> mr.extractor)  ~
-      ("templates" ->
-      mr.templates.map{((urlt)=>("serviceName" -> urlt.serviceName) ~  ("template" -> urlt.template))})
+      ("extractor" -> mr.extractor) ~
+        ("templates" ->
+          mr.templates.map {
+            ((urlt) => ("serviceName" -> urlt.serviceName) ~ ("template" -> urlt.template))
+          })
     compact(json)
-//    write[MappingRaw](m.m)
+    //    write[MappingRaw](m.m)
   }
 
-  def load(path: String): Future[Mapping] =  Future {
+  def load(path: String): Future[Mapping] = Future {
     loader.load(path)
-  }.map(fromJsonStr(_:String))
+  }.map(fromJsonStr(_: String))
 
-    implicit object Mapping extends JsonEventBody[Mapping] {
-      val jsonMediaType = MediaType("application/vnd.blinkbox.books.ingestion.quartermaster.v2+json")
-    }
+  implicit object Mapping extends JsonEventBody[Mapping] {
+    val jsonMediaType = MediaType("application/vnd.blinkbox.books.ingestion.quartermaster.v2+json")
+  }
 }
-
 
 
 case class MappingRaw(extractor: String, templates: List[UrlTemplate])
 //TODO rename to mapping model
-case class Mapping(m:MappingRaw)  extends JsonMethods  with v2.JsonSupport  with Configuration  {
-  implicit val formats =  DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
+case class Mapping(m: MappingRaw) extends JsonMethods with v2.JsonSupport with Configuration {
+  implicit val formats = DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
   implicit val timeout = AppConfig.timeout
-  def store(mappingPath:String):Future[Unit] = Future {
+
+  def store(mappingPath: String): Future[Unit] = Future {
     val fw = new FileWriter(mappingPath)
     fw.write(Mapping.toJson(this))
     fw.close()
   }
 
-
-
-
-
-
-
-
-
-
-  def broadcastUpdate(qsender: ActorRef, eventHeader:EventHeader): Future[Any] =   {
+  def broadcastUpdate(qsender: ActorRef, eventHeader: EventHeader): Future[Any] = {
     import akka.pattern.ask
-   qsender ? Event.json[Mapping](eventHeader, this)
-    }
-   val jsonMediaType: MediaType = MediaType("application/vnd.blinkbox.books.ingestion.quartermaster.v2+json")
+    qsender ? Event.json[Mapping](eventHeader, this)
+  }
 
+  val jsonMediaType: MediaType = MediaType("application/vnd.blinkbox.books.ingestion.quartermaster.v2+json")
 }
-
-
-
-
 
 
 trait RestRoutes extends HttpService {
@@ -110,60 +92,54 @@ trait RestRoutes extends HttpService {
 }
 
 
-case class QuarterMasterService(appConfig:AppConfig) {
-  def cleanUp(assetToken:AssetToken,label:Int):Future[Map[DelegateType,Status]] = {
+case class QuarterMasterService(appConfig: AppConfig) {
+  def cleanUp(assetToken: AssetToken, label: Int): Future[Map[DelegateType, Status]] = {
     storageWorker.cleanUp(assetToken, label).map((_.toMap))
   }
 
-
   val storageWorker = new QuarterMasterStorageWorker(appConfig.swc)
-  def storeAsset(bytes: Array[Byte], label: Int): Future[(AssetToken, Future[Map[DelegateType, Status]])] = Future{
-    val assetToken = genToken(bytes)
-    val f:Future[Map[DelegateType, Status]]= storageWorker.storeAsset(assetToken,bytes, label)
 
+  def storeAsset(bytes: Array[Byte], label: Int): Future[(AssetToken, Future[Map[DelegateType, Status]])] = Future {
+    val assetToken = genToken(bytes)
+    val f: Future[Map[DelegateType, Status]] = storageWorker.storeAsset(assetToken, bytes, label)
     (assetToken, f)
   }
 
   var mapping: Mapping = Await.result(Mapping.load(appConfig.mappingpath), 1000 millis)
-  //implicit val executionContext = appConfig.rmq.executionContext
 
-
-  def getStatus(token: AssetToken):Future[Map[DelegateType,Status]] = {
-
+  def getStatus(token: AssetToken): Future[Map[DelegateType, Status]] = {
     storageWorker.getStatus(token)
-}
+  }
 
+  def genToken(data: Array[Byte]): AssetToken = new AssetToken(data.hashCode.toString)
 
-
-  def genToken(data:Array[Byte]):AssetToken = new AssetToken(data.hashCode.toString)
-
-  def _updateAndBroadcastMapping(mappingStr:String):Future[String] = {
+  def _updateAndBroadcastMapping(mappingStr: String): Future[String] = {
     (for {
-      mapping <- Future{Mapping.fromJsonStr(mappingStr)}
+      mapping <- Future {
+        Mapping.fromJsonStr(mappingStr)
+      }
       _ <- mapping.store(appConfig.mappingpath)
       broadcaststatus <- mapping.broadcastUpdate(appConfig.rmq.qSender, appConfig.eventHeader)
     } yield (mapping, broadcaststatus)).recover[(Mapping, Any)] {
       case _ => (this.mapping, false)
-    }.map[String](t=> Mapping.toJson(t._1))
+    }.map[String](t => Mapping.toJson(t._1))
   }
 
-
-  def loadMapping():Future[String] =
-    Mapping.load(appConfig.mappingpath).map((loaded:Mapping ) =>{mapping = loaded
-    mapping}).recover[Mapping] {
-    case _ => mapping
-  }.map((Mapping.toJson(_)))
-
-
+  def loadMapping(): Future[String] =
+    Mapping.load(appConfig.mappingpath).map((loaded: Mapping) => {
+      mapping = loaded
+      mapping
+    }).recover[Mapping] {
+      case _ => mapping
+    }.map((Mapping.toJson(_)))
 
 }
 
-class QuarterMasterRoutes(qms:QuarterMasterService)  extends HttpServiceActor
+class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpServiceActor
 with RestRoutes with CommonDirectives with v2.JsonSupport {
 
   implicit val timeout = AppConfig.timeout
   val appConfig = qms.appConfig
-
   val mappingRoute = path(appConfig.mappingUri) {
     get {
       complete(qms.mapping)
@@ -178,49 +154,35 @@ with RestRoutes with CommonDirectives with v2.JsonSupport {
     }
   }
 
-
-// if the request fails then we are in two situations, either  no requests have succeeded
-// or some requests have succeeded, if no requests have succeeded then there is nothing to clean up
-// if some requests succeed, then the recovery in qms.storeAsset cleans up
   val storeAssetRoute = {
     path("upload") {
       post {
         formFields('data.as[Array[Byte]], 'label.as[Int]) { (data, label) =>
-          // import spray.httpx.SprayJsonSupport._
-
-
           type StorageRequestReturnType = (AssetToken, Future[Map[DelegateType, Status]])
-
-          val f:Future[AssetToken] = (qms.storeAsset(data, label)).map[AssetToken]((_._1))
+          val f: Future[AssetToken] = (qms.storeAsset(data, label)).map[AssetToken]((_._1))
           complete(StatusCodes.Accepted, f)
-
-
-          }
-
         }
-      }
-    }
-
-
-
-  val assetUploadStatus = path(appConfig.statusMappingUri) {
-    get {
-      parameters('token.as[String]).as(AssetToken) {
-        (assetToken:AssetToken) =>
-      respondWithMediaType(MediaTypes.`application/json`) {
-        complete(StatusCodes.OK, qms.getStatus(assetToken))
-      }
       }
     }
   }
 
+  val assetUploadStatus = path(appConfig.statusMappingUri) {
+    get {
+      parameters('token.as[String]).as(AssetToken) {
+        (assetToken: AssetToken) =>
+          respondWithMediaType(MediaTypes.`application/json`) {
+            complete(StatusCodes.OK, qms.getStatus(assetToken))
+          }
+      }
+    }
+  }
 
   //should return 202
   val updateMappingRoute =
     post {
       parameters('mappingJson) {
         (mappingString: String) => {
-            complete(StatusCodes.Accepted,  qms._updateAndBroadcastMapping(mappingString))
+          complete(StatusCodes.Accepted, qms._updateAndBroadcastMapping(mappingString))
         }
       }
     }
@@ -236,15 +198,11 @@ with RestRoutes with CommonDirectives with v2.JsonSupport {
   val quarterMasterRoute = mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ appConfig.hsc.healthService.routes ~ storeAssetRoute
   def receive = runRoute(quarterMasterRoute)
 
-
-
-
   private def exceptionHandler(implicit log: LoggingContext) = ExceptionHandler {
     case NonFatal(e) =>
       log.error(e, "Unhandled error")
       uncacheable(InternalServerError, None)
   }
-
 }
 
 

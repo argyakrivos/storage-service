@@ -35,8 +35,10 @@ paths:
           description: details of this resource, where at least 1 provider has this data
           schema:
             $ref: ProviderStatusResponse
+        400:
+          description: asset cannot be found on any of the assoicated providers invalid payload
         404:
-          description: asset cannot be found on any of the assoicated providers
+          description: url is incorrect
   /resources:
     post:
       summary: add new resource
@@ -61,7 +63,9 @@ paths:
           schema:
             $ref: ProviderStatusResponse
 # todo: fill out with json error objects
-        500:
+        400:
+          description: Bad syntax
+        403:
           description: Not authenticated
         503:
           description: provider unavailable
