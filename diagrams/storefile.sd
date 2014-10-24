@@ -9,7 +9,7 @@ s:List<Storage> [] "Storage Containers"
 
 # note that the watcher now has to poll for the service it is also up to the watcher to restart any failed services
 w:qmstor.create(store file)
-qmstor:w.response(201 processing)
+qmstor:w.response(202 accepted)
 
 qmstor:sc.update(pending)
 sc:qmstor.response(storage status)
