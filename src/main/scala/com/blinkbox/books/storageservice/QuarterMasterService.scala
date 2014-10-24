@@ -1,7 +1,6 @@
 package com.blinkbox.books.storageservice
 
 import java.io._
-
 import akka.actor.ActorRef
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats

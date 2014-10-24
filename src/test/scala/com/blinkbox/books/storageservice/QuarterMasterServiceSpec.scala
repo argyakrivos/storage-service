@@ -25,10 +25,6 @@ import scala.concurrent.Future
 import scala.util.Random
 
 
-/**
- * Created by greg on 19/09/14.
- */
-
 
 class QuarterMasterSpecification extends Configuration with FlatSpecLike with ScalatestRouteTest
 with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {

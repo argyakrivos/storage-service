@@ -2,9 +2,6 @@ package com.blinkbox.books.storageservice
 
 import spray.http.DateTime
 
-/**
- * Created by greg on 16/10/14.
- */
 case class Status (eta:DateTime,  available:Boolean)
 case class AssetData(timeStarted:DateTime, totalSize:Long)
 case class Progress(assetData:AssetData, sizeWritten:Long )
