@@ -3,8 +3,7 @@ info:
   title: QuarterMaster Storage - Public API
   description: Consumer facing REST API for storage of resources on the cloud.
   version: 1.0.0
-# Service configuration
-host: www.blinkbox.com
+# Service configuration\
 schemes:
   - http
   - https
