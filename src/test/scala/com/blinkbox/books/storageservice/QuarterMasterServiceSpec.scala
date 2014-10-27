@@ -174,7 +174,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
     failingDelegateConfigs <- Gen.listOf(mockFailingDelegateConfigGen)
   } yield Random.shuffle(failingDelegateConfigs.union(successfulDelegateConfigs))
 
-  "the quarterMaster " should "upload  assets" in {
+  "the quarterMaster" should "upload assets" in {
     forAll(mockSuccessfulDelegateConfigSetGen, arbitrary[Array[Byte]], arbitrary[Int]) {
       (mockDelegateConfigSet: Set[DelegateConfig], data: Array[Byte], label: Int) => {
         val mockSwConfig: StorageWorkerConfig = new StorageWorkerConfig(mockDelegateConfigSet.toSet)
@@ -195,7 +195,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
     }
   }
 
-  "the quarterMaster " should "clean up  failed assets" in {
+  "the quarterMaster" should "clean up failed assets" in {
     forAll(mockSuccessfulDelegateConfigSetGen, mockFailingDelegateSetGen, arbitrary[Array[Byte]], arbitrary[Int]) {
       (successfulDelegateSet: Set[DelegateConfig], mockFailingDelegateSet: Set[DelegateConfig], data: Array[Byte], label: Int) => {
         val randomSuccessAndFailingWriterConfigs = Random.shuffle(successfulDelegateSet.union(mockFailingDelegateSet))
