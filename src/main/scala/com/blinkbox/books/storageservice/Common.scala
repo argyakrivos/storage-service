@@ -11,7 +11,7 @@ case class UserId(id:String)
 case class UrlTemplate(serviceName:String, template:String){
   implicit val formats = DefaultFormats + FieldSerializer[UrlTemplate]()
 }
-//TODO rename to mapping val
+
 object Status  extends Ordering[Status]{
 
   val neverStatus:Status = new Status(DateTime.MaxValue, false)
