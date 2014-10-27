@@ -66,38 +66,7 @@ paths:
         403:
           description: Not authenticated
         503:
-          description: provider unavailableexample providerstatus response
-{
-  "token": "/path/to/file.epub",
-  "label": "epub",
-  "providers": {
-    "local": {
-      "available": true
-    },
-    "azure-a": {
-      "available": false
-      // No estimate for completeness
-    },
-    "azure-b": {
-      "available": false,
-      "percentComplete": 0.44, // Percent complete
-      "eta": 61 // seconds until ready
-    }
-  }
-}
-
-
-example  mapping file
-{"extractor":"^.*/(?P<filename>$.*)\\.(?P<extenstion>.{2,3})\\?",
-"templates":[{
-	"serviceName":"azure-a",
-	"template":"http://azureservices.com/blinkbox/\\g<filename>.\\g<extenstion>"}]}
-        504:
-          description: provider timeout
-        502:
-          description: one of the upstream providers gave unexpected response
-        507:
-          description: no space left on provider
+          description: provider unavailable
 
 definitions:
   ProviderTemplate:
@@ -170,8 +139,6 @@ definitions:
 #    }
 #  }
 #}
-
-
 # example  mapping file
 # {"extractor":"^.*/(?P<filename>$.*)\\.(?P<extenstion>.{2,3})\\?",
 # "templates":[{

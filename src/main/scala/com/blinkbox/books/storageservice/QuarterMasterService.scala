@@ -8,10 +8,10 @@ import scala.concurrent.{Await, Future}
 
 case class QuarterMasterService(appConfig: AppConfig) {
   val storageWorker = new QuarterMasterStorageWorker(appConfig.swc)
-  var mapping: Mapping = Await.result(Mapping.load(appConfig.mappingpath), 1000 millis)
+  var mapping: MappingModel = Await.result(MappingModel.load(appConfig.mappingpath), 1000 millis)
 
  def cleanUp(assetToken: AssetToken, label: Int): Future[Map[DelegateType, Status]] =
-   storageWorker.cleanUp(assetToken, label).map((_.toMap))
+   storageWorker.cleanUp(assetToken, label).map(_.toMap)
 
   def storeAsset(bytes: Array[Byte], label: Int): Future[(AssetToken, Future[Map[DelegateType, Status]])] = Future {
     val assetToken = genToken(bytes)
@@ -24,21 +24,24 @@ case class QuarterMasterService(appConfig: AppConfig) {
 
   def genToken(data: Array[Byte]): AssetToken = new AssetToken(data.hashCode.toString)
 
-  def _updateAndBroadcastMapping(mappingStr: String): Future[String ] =
+  def updateAndBroadcastMapping(mappingStr: String): Future[String ] =
     (for {
-      mapping <- Future{Mapping.fromJsonStr(mappingStr)}
+      mapping <- Future{MappingModel.fromJsonStr(mappingStr)}
       _ <- mapping.store(appConfig.mappingpath)
       _ <- mapping.broadcastUpdate(appConfig.rmq.qSender, appConfig.eventHeader)
-    } yield mapping).recover { case _ => this.mapping }.map { Mapping.toJson(_) }
+    } yield mapping).recover { case _ => this.mapping }.map (MappingModel.toJson)
 
-  def loadMapping(): Future[String] =
-    Mapping.load(appConfig.mappingpath).map((loaded: Mapping) => {
-      mapping = loaded
-      mapping
-    }).recover[Mapping] {
-      case _ => mapping
-    }.map((Mapping.toJson(_)))
+  def set(newMapping:MappingModel):Unit = this.mapping = newMapping
 
+  def loadMapping(): Future[String] = {
+      val oldMapping = this.mapping
+      val loadAndSetFuture =for {
+        newMapping:MappingModel <- MappingModel.load(appConfig.mappingpath)
+        _ = set(newMapping)
+      }yield MappingModel.toJson(newMapping)
+
+      loadAndSetFuture.recover[String]{case _ => MappingModel.toJson(oldMapping)}
+  }
 }
 
 

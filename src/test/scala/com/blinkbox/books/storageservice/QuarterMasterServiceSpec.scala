@@ -26,7 +26,7 @@ import scala.util.Random
 
 class QuarterMasterSpecification extends Configuration with FlatSpecLike with ScalatestRouteTest
 with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
-  implicit val formats = DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
+  implicit val formats = DefaultFormats + FieldSerializer[MappingModel]() + FieldSerializer[UrlTemplate]()
 
   import scala.collection.JavaConverters._
   config.entrySet().asScala.map(println(_))
@@ -40,7 +40,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
       "template":"http://azureservices.com/blinkbox/\\g<filename>.\\g<extenstion>"}]}"""
 
   val appConfig: AppConfig = AppConfig(config, system)
-  Mapping.loader = new MappingLoader {
+  MappingModel.loader = new MappingLoader {
     override def load(path: String): String = mappingJsonStr
     override def write(path: String, json:String): Unit= ()
   }
@@ -61,38 +61,38 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
   val mappingGen = for {
     templateList <- Gen.listOf(templateGen)
     extractor <- arbitrary[String]
-  } yield Mapping(MappingRaw(extractor, templateList))
+  } yield MappingModel(MappingValue(extractor, templateList))
 
 
   "The quarterMasterService" should "update the mapping file " in {
-    forAll(mappingGen, mappingGen2) { (oldMapping: Mapping, newMapping: JValue) =>
+    forAll(mappingGen, mappingGen2) { (oldMapping: MappingModel, newMapping: JValue) =>
       //ok this property will always apply but is left as a reference on how to filter properties
-      (!newMapping.extract[MappingRaw].templates.isEmpty || true) ==> {
+      (!newMapping.extract[MappingValue].templates.isEmpty || true) ==> {
         val json: String = newMapping.toString
         val expected: String = compact(render(newMapping))
-        val f: Future[String] = qms._updateAndBroadcastMapping(expected)
+        val f: Future[String] = qms.updateAndBroadcastMapping(expected)
         whenReady(f)(_ == expected)
       }
     }
   }
 
   "The quarterMasterService" should " not update the mapping with bad json " in {
-    forAll(mappingGen, alphaStr) { (oldMapping: Mapping, json: String) =>
+    forAll(mappingGen, alphaStr) { (oldMapping: MappingModel, json: String) =>
       qms.mapping = oldMapping
-      val expected = Mapping.toJson(oldMapping)
-      val f: Future[String] = qms._updateAndBroadcastMapping(json)
+      val expected = MappingModel.toJson(oldMapping)
+      val f: Future[String] = qms.updateAndBroadcastMapping(json)
       whenReady(f)(_ shouldEqual expected)
     }
   }
 
   "The quarterMasterService" should "not  load bogus data " in {
-    forAll(mappingGen, alphaStr) { (oldMapping: Mapping, bogusMapping: String) =>
-      Mapping.loader = new MappingLoader {
+    forAll(mappingGen, alphaStr) { (oldMapping: MappingModel, bogusMapping: String) =>
+      MappingModel.loader = new MappingLoader {
         override def load(path: String): String = bogusMapping
         override def write(path: String, json:String): Unit= ()
       }
       qms.mapping = oldMapping
-      val expected = Mapping.toJson(oldMapping)
+      val expected = MappingModel.toJson(oldMapping)
       val f = qms.loadMapping
       whenReady[String, Unit](f)((s: String) => s shouldEqual expected)
     }
@@ -100,9 +100,9 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
 
 
   "The quarterMasterService" should "  load good data " in {
-    forAll(mappingGen, mappingGen2) { (oldMapping: Mapping, loaded: JValue) =>
+    forAll(mappingGen, mappingGen2) { (oldMapping: MappingModel, loaded: JValue) =>
       val loadStr = compact(render(loaded))
-      Mapping.loader = new MappingLoader {
+      MappingModel.loader = new MappingLoader {
         override def load(path: String): String = loadStr
         override def write(path: String, json:String): Unit= ()
       }

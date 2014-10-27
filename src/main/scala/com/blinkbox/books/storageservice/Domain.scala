@@ -35,18 +35,18 @@ case class FileMappingLoader() extends MappingLoader {
   }
 }
 
-object Mapping extends JsonMethods with v2.JsonSupport  {
-  implicit val formats = DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
+object MappingModel extends JsonMethods with v2.JsonSupport  {
+  implicit val formats = DefaultFormats + FieldSerializer[MappingModel]() + FieldSerializer[UrlTemplate]()
   val EXTRACTOR_NAME = "extractor"
   val TEMPLATES_NAME = "templates"
   var loader: MappingLoader = new FileMappingLoader
 
-  def fromJsonStr(jsonString: String): Mapping = {
-    val m = read[Option[MappingRaw]](jsonString).map(new Mapping(_))
+  def fromJsonStr(jsonString: String): MappingModel = {
+    val m = read[Option[MappingValue]](jsonString).map(new MappingModel(_))
     m.getOrElse(throw new IllegalArgumentException(s"cant parse jsonString: $jsonString"))
   }
 
-  def toJson(m: Mapping): String = {
+  def toJson(m: MappingModel): String = {
     import org.json4s.JsonDSL._
     val mr = m.m
     val json =
@@ -56,31 +56,30 @@ object Mapping extends JsonMethods with v2.JsonSupport  {
             (urlt) => ("serviceName" -> urlt.serviceName) ~ ("template" -> urlt.template)
           })
     compact(json)
-    //    write[MappingRaw](m.m)
   }
 
-  def load(path:String): Future[Mapping] = Future {
+  def load(path:String): Future[MappingModel] = Future {
     loader.load(path)
   }.map(fromJsonStr(_: String))
 
-  implicit object Mapping extends JsonEventBody[Mapping] {
+  implicit object Mapping extends JsonEventBody[MappingModel] {
     val jsonMediaType = MediaType("application/vnd.blinkbox.books.ingestion.quartermaster.v2+json")
   }
 }
 
-case class MappingRaw(extractor: String, templates: List[UrlTemplate])
+case class MappingValue(extractor: String, templates: List[UrlTemplate])
 
-case class Mapping(m: MappingRaw) extends JsonMethods with v2.JsonSupport with Configuration {
-  implicit val formats = DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
+case class MappingModel(m: MappingValue) extends JsonMethods with v2.JsonSupport with Configuration {
+  implicit val formats = DefaultFormats + FieldSerializer[MappingModel]() + FieldSerializer[UrlTemplate]()
   implicit val timeout = AppConfig.timeout
 
   def store(mappingPath: String): Future[Unit] = Future {
-    Mapping.loader.write(mappingPath, Mapping.toJson(this))
+    MappingModel.loader.write(mappingPath, MappingModel.toJson(this))
   }
 
   def broadcastUpdate(qsender: ActorRef, eventHeader: EventHeader): Future[Any] = {
     import akka.pattern.ask
-    qsender ? Event.json[Mapping](eventHeader, this)
+    qsender ? Event.json[MappingModel](eventHeader, this)
   }
 
   val jsonMediaType: MediaType = MediaType("application/vnd.blinkbox.books.ingestion.quartermaster.v2+json")

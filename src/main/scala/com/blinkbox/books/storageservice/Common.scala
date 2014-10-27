@@ -27,7 +27,7 @@ object Status  extends Ordering[Status]{
   def toStatus(progress:Progress):Status = {
     val now = DateTime.now
     if (isDone(progress))
-      return new Status(now, true)
+      new Status(now, true)
     else {
       val size = progress.assetData.totalSize
       val written = progress.sizeWritten

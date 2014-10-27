@@ -36,7 +36,6 @@ with RestRoutes with CommonDirectives with v2.JsonSupport {
     path("upload") {
       post {
         formFields('data.as[Array[Byte]], 'label.as[Int]) { (data, label) =>
-          type StorageRequestReturnType = (AssetToken, Future[Map[DelegateType, Status]])
           val f: Future[AssetToken] = (qms.storeAsset(data, label)).map[AssetToken]((_._1))
           complete(StatusCodes.Accepted, f)
         }
@@ -59,7 +58,7 @@ with RestRoutes with CommonDirectives with v2.JsonSupport {
     post {
       parameters('mappingJson) {
         (mappingString: String) => {
-          complete(StatusCodes.Accepted, qms._updateAndBroadcastMapping(mappingString))
+          complete(StatusCodes.Accepted, qms.updateAndBroadcastMapping(mappingString))
         }
       }
     }
