@@ -10,20 +10,32 @@ import com.blinkbox.books.spray.v2
 import org.json4s.FieldSerializer
 import org.json4s.jackson.JsonMethods
 import org.json4s.jackson.Serialization._
+
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.io.Source
 
 trait MappingLoader {
-  def load(path: String): String
+  def load(path:String): String
+  def write(path:String, json:String):Unit
 }
 
-class FileMappingLoader extends MappingLoader {
-  override def load(path: String): String =
+case class FileMappingLoader() extends MappingLoader {
+
+  override def load(path:String): String =
     Source.fromFile(path).mkString("")
+
+  override def write(path:String, json: String): Unit = {
+    val fw = new FileWriter(path)
+    try {
+      fw.write(json)
+    }finally {
+     fw.close()
+    }
+  }
 }
 
-object Mapping extends JsonMethods with v2.JsonSupport {
+object Mapping extends JsonMethods with v2.JsonSupport  {
   implicit val formats = DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
   val EXTRACTOR_NAME = "extractor"
   val TEMPLATES_NAME = "templates"
@@ -41,13 +53,13 @@ object Mapping extends JsonMethods with v2.JsonSupport {
       ("extractor" -> mr.extractor) ~
         ("templates" ->
           mr.templates.map {
-            ((urlt) => ("serviceName" -> urlt.serviceName) ~ ("template" -> urlt.template))
+            (urlt) => ("serviceName" -> urlt.serviceName) ~ ("template" -> urlt.template)
           })
     compact(json)
     //    write[MappingRaw](m.m)
   }
 
-  def load(path: String): Future[Mapping] = Future {
+  def load(path:String): Future[Mapping] = Future {
     loader.load(path)
   }.map(fromJsonStr(_: String))
 
@@ -63,9 +75,7 @@ case class Mapping(m: MappingRaw) extends JsonMethods with v2.JsonSupport with C
   implicit val timeout = AppConfig.timeout
 
   def store(mappingPath: String): Future[Unit] = Future {
-    val fw = new FileWriter(mappingPath)
-    fw.write(Mapping.toJson(this))
-    fw.close()
+    Mapping.loader.write(mappingPath, Mapping.toJson(this))
   }
 
   def broadcastUpdate(qsender: ActorRef, eventHeader: EventHeader): Future[Any] = {

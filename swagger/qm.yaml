@@ -12,7 +12,7 @@ produces:
   - application/json
 # Service end-points
 paths:
-  /mapping:
+  /mappings:
     get:
       summary: Lookup mapping, only available internally
       tags:
@@ -36,8 +36,7 @@ paths:
             $ref: ProviderStatusResponse
         400:
           description: asset cannot be found on any of the assoicated providers invalid payload
-        404:
-          description: url is incorrect
+
   /resources:
     post:
       summary: add new resource
@@ -67,7 +66,32 @@ paths:
         403:
           description: Not authenticated
         503:
-          description: provider unavailable
+          description: provider unavailableexample providerstatus response
+{
+  "token": "/path/to/file.epub",
+  "label": "epub",
+  "providers": {
+    "local": {
+      "available": true
+    },
+    "azure-a": {
+      "available": false
+      // No estimate for completeness
+    },
+    "azure-b": {
+      "available": false,
+      "percentComplete": 0.44, // Percent complete
+      "eta": 61 // seconds until ready
+    }
+  }
+}
+
+
+example  mapping file
+{"extractor":"^.*/(?P<filename>$.*)\\.(?P<extenstion>.{2,3})\\?",
+"templates":[{
+	"serviceName":"azure-a",
+	"template":"http://azureservices.com/blinkbox/\\g<filename>.\\g<extenstion>"}]}
         504:
           description: provider timeout
         502:
@@ -127,29 +151,29 @@ definitions:
           $ref: ProviderStatus
           title: the key is the name of the provider and the value represents the status of the provider
 
-example providerstatus response
-{
-  "token": "/path/to/file.epub", 
-  "label": "epub",
-  "providers": {
-    "local": {
-      "available": true
-    },
-    "azure-a": {
-      "available": false
-      // No estimate for completeness
-    },
-    "azure-b": {
-      "available": false,
-      "percentComplete": 0.44, // Percent complete
-      "eta": 61 // seconds until ready
-    }
-  }
-}
+# example providerstatus response
+# {
+#  "token": "/path/to/file.epub",
+#  "label": "epub",
+#  "providers": {
+#    "local": {
+#     "available": true
+#    },
+#    "azure-a": {
+#      "available": false
+#      // No estimate for completeness
+#    },
+#    "azure-b": {
+#      "available": false,
+#      "percentComplete": 0.44, // Percent complete
+#      "eta": 61 // seconds until ready
+#    }
+#  }
+#}
 
 
-example  mapping file
-{"extractor":"^.*/(?P<filename>$.*)\\.(?P<extenstion>.{2,3})\\?",
-"templates":[{
-	"serviceName":"azure-a",
-	"template":"http://azureservices.com/blinkbox/\\g<filename>.\\g<extenstion>"}]}
+# example  mapping file
+# {"extractor":"^.*/(?P<filename>$.*)\\.(?P<extenstion>.{2,3})\\?",
+# "templates":[{
+#	"serviceName":"azure-a",
+#	"template":"http://azureservices.com/blinkbox/\\g<filename>.\\g<extenstion>"}]}

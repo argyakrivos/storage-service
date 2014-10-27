@@ -24,14 +24,12 @@ import spray.testkit.ScalatestRouteTest
 import scala.concurrent.Future
 import scala.util.Random
 
-
-
 class QuarterMasterSpecification extends Configuration with FlatSpecLike with ScalatestRouteTest
 with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
   implicit val formats = DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
-  // probably could just use arbitrary[caseClass] , but this affords more control
 
-
+  import scala.collection.JavaConverters._
+  config.entrySet().asScala.map(println(_))
   val templateGen = for {
     serviceName <- arbitrary[String]
     template <- arbitrary[String]
@@ -44,6 +42,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
   val appConfig: AppConfig = AppConfig(config, system)
   Mapping.loader = new MappingLoader {
     override def load(path: String): String = mappingJsonStr
+    override def write(path: String, json:String): Unit= ()
   }
   val qms = new QuarterMasterService(appConfig)
 
@@ -60,7 +59,6 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
 
 
   val mappingGen = for {
-
     templateList <- Gen.listOf(templateGen)
     extractor <- arbitrary[String]
   } yield Mapping(MappingRaw(extractor, templateList))
@@ -91,6 +89,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
     forAll(mappingGen, alphaStr) { (oldMapping: Mapping, bogusMapping: String) =>
       Mapping.loader = new MappingLoader {
         override def load(path: String): String = bogusMapping
+        override def write(path: String, json:String): Unit= ()
       }
       qms.mapping = oldMapping
       val expected = Mapping.toJson(oldMapping)
@@ -105,6 +104,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
       val loadStr = compact(render(loaded))
       Mapping.loader = new MappingLoader {
         override def load(path: String): String = loadStr
+        override def write(path: String, json:String): Unit= ()
       }
       qms.mapping = oldMapping
       val f = qms.loadMapping
@@ -167,8 +167,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
   val mockFailingDelegateSetGen = for {
     failingWriters <- Gen.nonEmptyListOf(mockFailingDelegateConfigGen)
   } yield failingWriters.toSet
-
-
+41
   val mockFailingMixedDelegateSetGen = for {
     successfulDelegateConfigs <- Gen.listOf(mockSuccessfulDelegateConfigGen)
     failingDelegateConfigs <- Gen.listOf(mockFailingDelegateConfigGen)
@@ -178,7 +177,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
     forAll(mockSuccessfulDelegateConfigSetGen, arbitrary[Array[Byte]], arbitrary[Int]) {
       (mockDelegateConfigSet: Set[DelegateConfig], data: Array[Byte], label: Int) => {
         val mockSwConfig: StorageWorkerConfig = new StorageWorkerConfig(mockDelegateConfigSet.toSet)
-        val newConfig = AppConfig(appConfig.rmq, appConfig.hsc, appConfig.sc, mockSwConfig)
+        val newConfig = AppConfig(config, appConfig.rmq, appConfig.hsc, appConfig.sc, mockSwConfig)
         val qms2 = new QuarterMasterService(newConfig)
         val f = qms2.storeAsset(data, label).flatMap[Map[DelegateType, Status]]((callFinished: (AssetToken, Future[Map[DelegateType, Status]])) => callFinished._2)
         whenReady(f)((s: Map[DelegateType, Status]) => {
@@ -200,7 +199,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
       (successfulDelegateSet: Set[DelegateConfig], mockFailingDelegateSet: Set[DelegateConfig], data: Array[Byte], label: Int) => {
         val randomSuccessAndFailingWriterConfigs = Random.shuffle(successfulDelegateSet.union(mockFailingDelegateSet))
         val mockSwConfig: StorageWorkerConfig = new StorageWorkerConfig(randomSuccessAndFailingWriterConfigs.toSet)
-        val newConfig = AppConfig(appConfig.rmq, appConfig.hsc, appConfig.sc, mockSwConfig)
+        val newConfig = AppConfig(config, appConfig.rmq, appConfig.hsc, appConfig.sc, mockSwConfig)
         val qms2 = new QuarterMasterService(newConfig)
         val f: Future[Map[DelegateType, Status]] = qms2.storeAsset(data, label).flatMap((callFinished: (AssetToken, Future[Map[DelegateType, Status]])) => callFinished._2)
         whenReady(f)((s: Map[DelegateType, Status]) => {
@@ -218,15 +217,6 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
     }
   }
 }
-
-
-
-
-
-
-
-
-
 
 
 

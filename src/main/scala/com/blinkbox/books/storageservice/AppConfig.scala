@@ -1,6 +1,7 @@
 package com.blinkbox.books.storageservice
 
 import java.util.concurrent.TimeUnit
+import scala.collection.JavaConverters._
 import akka.actor.{ActorRefFactory, Props}
 import akka.util.Timeout
 import com.blinkbox.books.logging.DiagnosticExecutionContext
@@ -41,24 +42,27 @@ class StorageWorkerConfig(delegateConfigs: Set[DelegateConfig]) {
   val delegateTypes = delegateConfigs.map((dc: DelegateConfig) => dc.delegate.delegateType)
 }
 
-case class AppConfig(rmq: RabbitMQConfig, hsc: HealthServiceConfig, sc: StorageConfig, swc: StorageWorkerConfig) {
-  val mappingEventHandler = EventHeader("application/quartermaster+json")
-  val mappingpath = "/tmp/mapping.json"
-  val mappingUri = "/quartermaster/mapping"
-  val refreshMappingUri = mappingUri + "/refresh"
-  val statusMappingUri = mappingUri + "/status"
-  val eventHeader: EventHeader = EventHeader("QuarterMasterUpdatePublisher")
+case class AppConfig(c:Config, rmq: RabbitMQConfig, hsc: HealthServiceConfig, sc: StorageConfig, swc: StorageWorkerConfig) {
+  val mappingEventHandler = EventHeader(c.getString("service.qm.mappingEventHandler"))
+  val mappingpath = c.getString("service.qm.mappingpath")
+  val mappingUri = c.getString("service.qm.mappingUri")
+  val refreshMappingUri = c.getString("service.qm.refreshMappingUri")
+  val statusMappingUri = c.getString("service.qm.statusMappingUri")
+  val eventHeader: EventHeader = EventHeader(c.getString("service.qm.sender.eventHeader"))
 }
 
 object AppConfig {
+
   implicit val timeout = Timeout(50L, TimeUnit.SECONDS)
   val repo: TrieMap[DelegateKey, Progress] = new TrieMap[DelegateKey, Progress]
   def apply(c: Config, arf: ActorRefFactory) = {
-    val deletgateConfigs = Set(DelegateConfig(new LocalStorageDelegate(repo, "/tmp/qm", new DelegateType("localStorage")), Set(1, 3, 4)))
-    new AppConfig(RabbitMQConfig(c, arf), HealthServiceConfig(arf), new StorageConfig(arf), new StorageWorkerConfig(deletgateConfigs))
+    val localStoragePath = c.getString("service.qm.localStoragePath")
+    val  localstoragelabels:Set[Int] = c.getIntList("service.qm.localStorageLabels").asScala.toSet.map(Integer2int(_:Integer))
+    val deletgateConfigs = Set(DelegateConfig(new LocalStorageDelegate(repo,localStoragePath, new DelegateType("localStorage")), localstoragelabels))
+    new AppConfig(c,RabbitMQConfig(c, arf), HealthServiceConfig(arf), new StorageConfig(c,arf), new StorageWorkerConfig(deletgateConfigs))
   }
 }
 
-case class StorageConfig(arf: ActorRefFactory) {
-  val localPath = "/tmp/assets/"
+case class StorageConfig(c:Config, arf: ActorRefFactory) {
+  val localPath = c.getString("service.qm.localPath")
 }
