@@ -16,8 +16,9 @@ import spray.util.LoggingContext
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
-import scala.concurrent.{Await, Future}
+import scala.concurrent.{Promise, Await, Future}
 import scala.io.Source
+import scala.util.Try
 import scala.util.control.NonFatal
 
 trait MappingLoader {
@@ -110,16 +111,17 @@ case class QuarterMasterService(appConfig: AppConfig) {
 
   def genToken(data: Array[Byte]): AssetToken = new AssetToken(data.hashCode.toString)
 
-  def _updateAndBroadcastMapping(mappingStr: String): Future[String] = {
-    (for {
-      mapping <- Future {
-        Mapping.fromJsonStr(mappingStr)
-      }
+  def _updateAndBroadcastMapping(mappingStr: String): Future[(String, Boolean)] = {
+    val upDateandBroadcastFuture:Future[(String, Boolean)] = for {
+      mappingNew <- Promise.fromTry(Try{Mapping.fromJsonStr(mappingStr)}).future
       _ <- mapping.store(appConfig.mappingpath)
-      broadcaststatus <- mapping.broadcastUpdate(appConfig.rmq.qSender, appConfig.eventHeader)
-    } yield (mapping, broadcaststatus)).recover[(Mapping, Any)] {
-      case _ => (this.mapping, false)
-    }.map[String](t => Mapping.toJson(t._1))
+      _ <- mapping.broadcastUpdate(appConfig.rmq.qSender, appConfig.eventHeader)
+    } yield (Mapping.toJson(mappingNew), true)
+
+    upDateandBroadcastFuture.recover[(String, Boolean)] {
+      case _ => (Mapping.toJson(this.mapping), false)
+    }
+
   }
 
   def loadMapping(): Future[String] =

@@ -72,8 +72,8 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
       (!newMapping.extract[MappingRaw].templates.isEmpty || true) ==> {
         val json: String = newMapping.toString
         val expected: String = compact(render(newMapping))
-        val f: Future[String] = qms._updateAndBroadcastMapping(expected)
-        whenReady(f)((actual: String) => actual == expected)
+        val f: Future[(String, Boolean)] = qms._updateAndBroadcastMapping(expected)
+        whenReady(f)((actual: (String, Boolean)) => actual._1 == expected)
       }
     }
   }
@@ -82,8 +82,8 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
     forAll(mappingGen, alphaStr) { (oldMapping: Mapping, json: String) =>
       qms.mapping = oldMapping
       val expected = Mapping.toJson(oldMapping)
-      val f: Future[String] = qms._updateAndBroadcastMapping(json)
-      whenReady(f)((s: String) => s shouldEqual expected)
+      val f: Future[(String, Boolean)] = qms._updateAndBroadcastMapping(json)
+      whenReady(f)((s: (String, Boolean)) => s._1 shouldEqual expected)
     }
   }
 
