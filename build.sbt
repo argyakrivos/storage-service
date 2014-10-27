@@ -1,6 +1,6 @@
 
 
-name := "quartermaster"
+name := "storage-service"
  
 scalaVersion := "2.11.2"
  
