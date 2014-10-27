@@ -7,18 +7,15 @@ Feature: Store a Resource for later retrieval
   Scenario: Storing a file (all storage providers are available)
     Given there are storage providers 1,2,3 configured
     When I request that a file be stored via tagging on Providers 1,2,3
-    Then the response is a storage status document
+    Then the response is a storage pending document
     And the the inprogress status is stored in the repository
-    And there are 3 items in "Providers: Ready"
 
   Scenario: Storing a file (some storage providers are unavailable)
     Given there are storage providers 1,2,3 configured
     And  storage provider 1 is down
     When I request that a file be stored via tagging on Providers 1,2,3
-    Then the response is a storage status document
+    Then the response is a storage pending document
     And the the inprogress status is stored in the repository
-    And there is 2 items in "Providers: Ready"
-    And there is 1 item in  "Providers: Pending"
 
   Scenario: Storing a file (all storage providers are unavailable)
     Given there are storage providers 1,2,3 configured
@@ -26,8 +23,7 @@ Feature: Store a Resource for later retrieval
     When I request that a file be stored via tagging on Providers 1,2,3
     Then the request fails because no suitable storage providers were available
     And the the inprogress status is stored in the repository
-    And the response is a storage status document
-    And there are 3 items in "Providers: Unavailable"
+    And the response is a storage status failed document
 
   Scenario: Storing a file (all storage providers are unavailable)
     Given there are storage providers 1,2,3 configured
@@ -37,8 +33,3 @@ Feature: Store a Resource for later retrieval
     Then the quartermaster recreates the request to store on storage provider 1
     And the the inprogress status is stored in the repository
     And the response is a storage status document
-
-
- 
-
-

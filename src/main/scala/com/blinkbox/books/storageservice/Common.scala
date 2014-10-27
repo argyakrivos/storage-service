@@ -1,12 +1,16 @@
 package com.blinkbox.books.storageservice
 
+import com.blinkbox.books.json.DefaultFormats
+import org.json4s.FieldSerializer
 import spray.http.DateTime
 
 case class Status (eta:DateTime,  available:Boolean)
 case class AssetData(timeStarted:DateTime, totalSize:Long)
 case class Progress(assetData:AssetData, sizeWritten:Long )
 case class UserId(id:String)
-case class UrlTemplate(serviceName:String, template:String)
+case class UrlTemplate(serviceName:String, template:String){
+  implicit val formats = DefaultFormats + FieldSerializer[UrlTemplate]()
+}
 //TODO rename to mapping val
 object Status  extends Ordering[Status]{
 
