@@ -1,20 +1,16 @@
-swagger: 2
+---
+swagger: "2.0"
 info:
-  title: QuarterMaster Storage - Public API
-  description: Consumer facing REST API for storage of resources on the cloud.
+  title: Storage Service
+  description: Service-facing REST API for storage of resources on the cloud.
   version: 1.0.0
-# Service configuration\
-schemes:
-  - http
-  - https
 basePath: /
 produces:
   - application/json
-# Service end-points
 paths:
   /mappings:
     get:
-      summary: Lookup mapping, only available internally
+      summary: Lookup virtual URI mapping
       tags:
         - Mapping
       responses:
@@ -25,122 +21,132 @@ paths:
 
   /resources/{token}:
     get:
-      summary: get a resource uri
-      description: get the details about the particular resource and its storage
+      summary: Information about a specific resource
+      description: Get the details about the particular resource and where it is stored.
       tags:
         - Mapping
+      parameters:
+        - name: token
+          in: path
+          type: string
+          required: true
+          description: The virtual URL being looked up
       responses:
         200:
-          description: details of this resource, where at least 1 provider has this data
+          description: Details of this resource (given that at least 1 provider has this data)
           schema:
             $ref: ProviderStatusResponse
-        400:
-          description: asset cannot be found on any of the assoicated providers invalid payload
+        404:
+          description: The specified resource cannot be found on any of the assoicated providers.
+          examples:
+            application/json: |
+              {
+                "code": "NotFound",
+                "providers": ["azure-alpha", "gluster"]
+              }
 
   /resources:
     post:
-      summary: add new resource
-      description: add a new resource to quartermaster
+      summary: Upload a new resource
+      description: Upload a resource to the storage service.
       consumes: multipart/form-data
       parameters:
         - name: label
           in: formData
           type: string
-          description: the grouping the client wishes to post the asset into
+          description: The grouping the client wishes to post the resource into
           required: true
         - name: data
           in : formData
           type: file
-          description: the blob of the asset
+          description: The blob of the resource
           required: true
       tags:
         - Mapping
       responses:
         202:
-          description: resource request accepted
+          description: Resource received and upload request accepted. Storage on remote systems will continue in the background.
           schema:
             $ref: ProviderStatusResponse
-# todo: fill out with json error objects
         400:
-          description: Bad syntax
-        403:
-          description: Not authenticated
+          description: Missing or invalid parameters
+          examples:
+            application/json: |
+              {
+                "code": "InvalidParameters"
+              }
+        501:
+          description: Unknown label (not sure where to upload). Please configure the label first.
+          examples:
+            application/json: |
+              {
+                "code": "UnknownLabel"
+              }
         503:
-          description: provider unavailable
-
+          description: Enough of the providers are unavailable to cause concern. Uploads are currently prevented.
+          examples:
+            application/json: |
+              {
+                "code": "UploadsUnavailable"
+              }
 definitions:
-  ProviderTemplate:
-      title: For a named storage:A structure which describes how to apply a set of tokens to its template in order to generate a url for a resource
-      properties:
-        storage:
-          type: string
-          title: one the enumerated names available storages
-        template:
-          type: string
-          title: a string containing placeholders where tokens are added to generate a url for a resource
   MappingFile:
-    title: List of templates that describe how to create a url from the uri passed back from quarter master
-    properties:
-      extractorPattern:
-        type: string
-        title: a regex containing groups that capture tokens to apply to templates to produce urls for each of the enumerated storages
-      templates:
-        type: object
-        title: an Map of Templates that describes how to create a url from the tokens extracted for a given storagename
-        additionalProperties: //any number of addtitionalproperties can be objects of said referered type
-          $ref: ProviderTemplate
-          title: pair of storage name and regex to to apply to the token such that a url can be created for each of the providers requested
-
-  ProviderStatus:
-    title: progress status of a resource's storage, an empty finish date suggest incomplete or broken status
-    type: object
-    properties:
-      available:
-        type:  boolean
-        title: can this file be found at this location
-      eta:
-        type: number
-        title: number of seconds until upload is expected to complete, absent if complete
-      percentComplete: 
-        type: number
-        title: upload complete percentage as fraction of 1, absent if complete
+    title: List of templates that describe how to create a url from a token. Object keys are regular expressions which should match some tokens. Named groups should be used so that components of the token can be inserted into the URLs contained.
+    type: array
+    items:
+      title: An object describing a label and how to map tokens of that label's type to URLs.
+      type: object
+      required:
+        - label
+        - extractor
+        - providers
+      additionalProperties: false
+      properties:
+        label:
+          title: The label described by this definition
+          type: string
+        extractor:
+          title: A regular expression using named capture groups (PCRE 7.2 format: `(?<name>.+)`) which will match tokens made for this label
+          type: string
+        providers:
+          title: List of providers which are used for this label. Object key is the provider name.
+          type: object
+          additionalProperties:
+            title: "A URL with templated sections in sprintf form eg. `https://storage.example.com/bucket/%{variableName}` where `variableName` is a named group catured in the regular expression key above."
+            type: string
   ProviderStatusResponse:
     title: progress status of a resource's storage
+    required:
+      - token
+      - label
+      - providers
+    additionalProperties: false
     properties:
       token:
-        type: string
         title: a token which represents mapped resources in the cloud
-      label:
         type: string
+      label:
         title: allows you to group assets, define some attributes of how they are stored
+        type: string
       providers:
         type: object
         title: a map on of storage requests ->complete boolean
         additionalProperties: 
-          $ref: ProviderStatus
-          title: the key is the name of the provider and the value represents the status of the provider
-
-# example providerstatus response
-# {
-#  "token": "/path/to/file.epub",
-#  "label": "epub",
-#  "providers": {
-#    "local": {
-#     "available": true
-#    },
-#    "azure-a": {
-#      "available": false
-#      // No estimate for completeness
-#    },
-#    "azure-b": {
-#      "available": false,
-#      "percentComplete": 0.44, // Percent complete
-#      "eta": 61 // seconds until ready
-#    }
-#  }
-#}
-# example  mapping file
-# {"extractor":"^.*/(?P<filename>$.*)\\.(?P<extenstion>.{2,3})\\?",
-# "templates":[{
-#	"serviceName":"azure-a",
-#	"template":"http://azureservices.com/blinkbox/\\g<filename>.\\g<extenstion>"}]}
+          title: Details of the resource as stored in the various providers.
+          type: object
+          required:
+            - available
+          additionalProperties: false
+          properties:
+            available:
+              title: Can the resource be found at this location?
+              type: boolean
+            eta:
+              title: Number of seconds until upload is expected to complete, absent if complete or not started.
+              type: number
+              minimum: 0
+            percentComplete:
+              title: Upload complete percentage as fraction of 1, absent if complete or not started.
+              type: number
+              minimum: 0
+              maximum: 1
