@@ -5,8 +5,7 @@ import java.io.FileWriter
 import com.blinkbox.books.spray.{Directives => CommonDirectives}
 
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.duration._
-import scala.concurrent.{Await, Future}
+import scala.concurrent.Future
 import scala.io.Source
 
 trait MappingLoader {
@@ -30,9 +29,9 @@ case class FileMappingLoader() extends MappingLoader {
 }
 
 
-case class QuarterMasterService(appConfig: AppConfig) {
+case class QuarterMasterService(appConfig: AppConfig, initMapping:Mapping) {
   val storageWorker = new QuarterMasterStorageWorker(appConfig.swc)
-  var mapping: Mapping = Await.result(MappingHelper.load(appConfig.mappingpath), 1000 millis)
+  var mapping: Mapping = initMapping
 
  def cleanUp(assetToken: AssetToken, label: Int): Future[Map[DelegateType, Status]] =
    storageWorker.cleanUp(assetToken, label).map(_.toMap)

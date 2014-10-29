@@ -2,10 +2,10 @@ package com.blinkbox.books.storageservice
 
 import java.util.UUID
 
+import akka.actor.ActorRefFactory
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
 import org.json4s.JsonDSL._
-import org.json4s.jackson.JsonMethods._
 import org.json4s.{FieldSerializer, JValue}
 import org.mockito.Matchers._
 import org.mockito.Mockito
@@ -13,22 +13,23 @@ import org.mockito.invocation.InvocationOnMock
 import org.mockito.stubbing.Answer
 import org.scalacheck.Arbitrary.arbitrary
 import org.scalacheck.Gen
-import org.scalacheck.Gen.alphaStr
-import org.scalacheck.Prop.BooleanOperators
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.mock.MockitoSugar
 import org.scalatest.prop.GeneratorDrivenPropertyChecks
 import org.scalatest.{FlatSpecLike, Matchers}
 import spray.http.DateTime
+import spray.routing.HttpService
 import spray.testkit.ScalatestRouteTest
-
+import org.scalacheck.Gen.alphaStr
+import org.scalacheck.Prop.BooleanOperators
 import scala.concurrent.Future
 import scala.util.Random
+import org.json4s.jackson.JsonMethods._
 
 class QuarterMasterSpecification extends Configuration with FlatSpecLike with ScalatestRouteTest
 with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
   implicit val formats = DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
-
+  val initMapping:Mapping = Mapping("", List())
   import scala.collection.JavaConverters._
   config.entrySet().asScala.map(println(_))
   val templateGen = for {
@@ -45,7 +46,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
     override def load(path: String): String = mappingJsonStr
     override def write(path: String, json:String): Unit= ()
   }
-  val qms = new QuarterMasterService(appConfig)
+  val qms = new QuarterMasterService(appConfig, initMapping)
 
 
   val templateGen2: Gen[JValue] = for {
@@ -179,7 +180,9 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
       (mockDelegateConfigSet: Set[DelegateConfig], data: Array[Byte], label: Int) => {
         val mockSwConfig: StorageWorkerConfig = new StorageWorkerConfig(mockDelegateConfigSet.toSet)
         val newConfig = AppConfig(config, appConfig.rmq, appConfig.hsc, appConfig.sc, mockSwConfig)
-        val qms2 = new QuarterMasterService(newConfig)
+        val qms2 = new QuarterMasterService(newConfig, initMapping)
+
+        //extract the work future from the result
         val f = qms2.storeAsset(data, label).flatMap[Map[DelegateType, Status]]((callFinished: (AssetToken, Future[Map[DelegateType, Status]])) => callFinished._2)
         whenReady(f)((s: Map[DelegateType, Status]) => {
           val matchingDelegates = mockDelegateConfigSet.filter((dc: DelegateConfig) => dc.labels.contains(label)).map(_.delegate)
@@ -201,7 +204,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
         val randomSuccessAndFailingWriterConfigs = Random.shuffle(successfulDelegateSet.union(mockFailingDelegateSet))
         val mockSwConfig: StorageWorkerConfig = new StorageWorkerConfig(randomSuccessAndFailingWriterConfigs.toSet)
         val newConfig = AppConfig(config, appConfig.rmq, appConfig.hsc, appConfig.sc, mockSwConfig)
-        val qms2 = new QuarterMasterService(newConfig)
+        val qms2 = new QuarterMasterService(newConfig, initMapping)
         val f: Future[Map[DelegateType, Status]] = qms2.storeAsset(data, label).flatMap((callFinished: (AssetToken, Future[Map[DelegateType, Status]])) => callFinished._2)
         whenReady(f)((s: Map[DelegateType, Status]) => {
           val matchingDelegates = mockFailingDelegateSet.filter((dc: DelegateConfig) => dc.labels.contains(label)).map(_.delegate)
@@ -218,32 +221,48 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
     }
   }
 
-//  import spray.http.StatusCodes._
-//
-//  it should "connect to the correct mappings" in {
-//
-//    forAll(mockSuccessfulDelegateConfigSetGen, arbitrary[Array[Byte]], arbitrary[Int], mappingGen2) {
-//      (mockDelegateConfigSet: Set[DelegateConfig], data: Array[Byte], label: Int, loaded : JValue) =>  {
-//        val mockLoader = MockitoSugar.mock[MappingLoader]
-//        Mockito.when(mockLoader.load(any[String])).thenReturn(compact(render(loaded)))
-//        MappingHelper.loader = mockLoader
-//          val mockSwConfig: StorageWorkerConfig = new StorageWorkerConfig(mockDelegateConfigSet.toSet)
-//          val newConfig = AppConfig(config, appConfig.rmq, appConfig.hsc, appConfig.sc, mockSwConfig)
-//          val qms = new QuarterMasterService(newConfig)
-//        system.actorOf(Props(new QuarterMasterRoutes(qms)), "storage-service")
-//        def routes =
-//        Get("/mappings")  ~> routes ~> check {
-//          assert(status == OK && mediaType == "application/vnd.blinkbox.books.v2+json")
-//        //  assert(responseAs[Mapping].isInstanceOf[Mapping] )
-//
-//
-//        }
-//
-//
-//
-//      }
-//    }
-//  }
+  import org.json4s.jackson.JsonMethods._
+  import spray.http.StatusCodes._
+
+  it should "connect to the correct mappings" in  {
+          val router = new QuarterMasterRoutes(qms)
+          def routes = router.routes
+          Get("/mappings") ~> routes ~> check {
+            assert(status == OK )
+            mediaType.toString == "application/vnd.blinkbox.books.v2+json"
+        }
+      }
+
+
+
+
+
+  it should "save an artifact" in  {
+    forAll(mockSuccessfulDelegateConfigSetGen, arbitrary[Array[Byte]], arbitrary[Int], mappingGen2) {
+      (mockDelegateConfigSet: Set[DelegateConfig], data: Array[Byte], label: Int, loaded : JValue) => {
+        val mockLoader = MockitoSugar.mock[MappingLoader]
+        val mockSwConfig: StorageWorkerConfig = new StorageWorkerConfig(mockDelegateConfigSet.toSet)
+        val newConfig = AppConfig(config, appConfig.rmq, appConfig.hsc, appConfig.sc, mockSwConfig)
+        val qms2 = new QuarterMasterService(newConfig, initMapping)
+
+        Mockito.when(mockLoader.load(any[String])).thenReturn(compact(render(loaded)))
+        MappingHelper.loader = mockLoader
+
+        val router = new QuarterMasterRoutes(qms2)
+        def routes = router.routes
+        Post("/mappings") ~> routes ~> check {
+          assert(status == OK )
+          val matchingDelegates = mockDelegateConfigSet.filter((dc: DelegateConfig) => dc.labels.contains(label)).map(_.delegate)
+          val nonMatchingDelegates = mockDelegateConfigSet.filter((dc: DelegateConfig) => !dc.labels.contains(label)).map(_.delegate)
+          matchingDelegates.map((mockDelegate: StorageDelegate) => Mockito.verify(mockDelegate, Mockito.times(1)).write(any[AssetToken], any[Array[Byte]]))
+          nonMatchingDelegates.map((mockDelegate: StorageDelegate) => Mockito.verify(mockDelegate, Mockito.times(0)).write(any[AssetToken], any[Array[Byte]]))
+          mediaType.toString == "application/vnd.blinkbox.books.v2+json"
+
+
+        }
+      }
+    }
+  }
 
 
 }

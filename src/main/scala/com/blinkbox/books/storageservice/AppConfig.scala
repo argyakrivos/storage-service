@@ -43,8 +43,8 @@ class StorageWorkerConfig(delegateConfigs: Set[DelegateConfig]) {
 }
 
 case class AppConfig(c:Config, rmq: RabbitMQConfig, hsc: HealthServiceConfig, sc: StorageConfig, swc: StorageWorkerConfig) {
-  val hosturl: Path = Path(c.getString("service.qm.api.public.hosturl"))
-
+  val root: Path = Path(c.getString("service.qm.api.public.root"))
+  val arf = rmq.arf
   val host: String =c.getString("service.qm.api.public.host")
 
   val effectivePort:Int =c.getInt("service.qm.api.public.effectivePort")
