@@ -28,7 +28,6 @@ case class FileMappingLoader() extends MappingLoader {
   }
 }
 
-
 case class QuarterMasterService(appConfig: AppConfig, initMapping:Mapping) {
   val storageWorker = new QuarterMasterStorageWorker(appConfig.swc)
   var mapping: Mapping = initMapping
@@ -66,12 +65,3 @@ case class QuarterMasterService(appConfig: AppConfig, initMapping:Mapping) {
       loadAndSetFuture.recover[String]{case _ => MappingHelper.toJson(oldMapping)}
   }
 }
-
-
-
-
-
-
-
-
-

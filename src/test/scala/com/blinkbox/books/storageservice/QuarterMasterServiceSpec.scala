@@ -234,40 +234,6 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
         }
       }
 
-
-
-
-
-//  it should "save an artifact" in  {
-//    forAll(mockSuccessfulDelegateConfigSetGen, arbitrary[Array[Byte]], arbitrary[Int]) {
-//      (mockDelegateConfigSet: Set[DelegateConfig], data: Array[Byte], label: Int) => {
-//        val mockLoader = MockitoSugar.mock[MappingLoader]
-//        val mockSwConfig: StorageWorkerConfig = new StorageWorkerConfig(mockDelegateConfigSet.toSet)
-//        val newConfig = AppConfig(config, appConfig.rmq, appConfig.hsc, appConfig.sc, mockSwConfig)
-//        val qms2 = new QuarterMasterService(newConfig, initMapping)
-//
-//        val router = new QuarterMasterRoutes(qms2)
-//        def routes = router.routes
-//        Post("/resources",
-//          MultipartFormData(
-//              Map(
-//                "data" -> BodyPart(HttpData(data), "data"),
-//                "label" -> BodyPart(HttpData(label.toString)))
-//        )) ~> routes ~> check {
-//          assert(status == OK )
-//          val matchingDelegates = mockDelegateConfigSet.filter((dc: DelegateConfig) => dc.labels.contains(label)).map(_.delegate)
-//          val nonMatchingDelegates = mockDelegateConfigSet.filter((dc: DelegateConfig) => !dc.labels.contains(label)).map(_.delegate)
-//          matchingDelegates.map((mockDelegate: StorageDelegate) => Mockito.verify(mockDelegate, Mockito.times(1)).write(any[AssetToken], any[Array[Byte]]))
-//          nonMatchingDelegates.map((mockDelegate: StorageDelegate) => Mockito.verify(mockDelegate, Mockito.times(0)).write(any[AssetToken], any[Array[Byte]]))
-//          mediaType.toString == "application/vnd.blinkbox.books.v2+json"
-//
-//
-//        }
-//      }
-//    }
-//  }
-
-
 }
 
 
