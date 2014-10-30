@@ -2,10 +2,10 @@ package com.blinkbox.books.storageservice
 
 import java.util.UUID
 
-import akka.actor.ActorRefFactory
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
 import org.json4s.JsonDSL._
+import org.json4s.jackson.JsonMethods._
 import org.json4s.{FieldSerializer, JValue}
 import org.mockito.Matchers._
 import org.mockito.Mockito
@@ -13,19 +13,18 @@ import org.mockito.invocation.InvocationOnMock
 import org.mockito.stubbing.Answer
 import org.scalacheck.Arbitrary.arbitrary
 import org.scalacheck.Gen
+import org.scalacheck.Gen.alphaStr
+import org.scalacheck.Prop.BooleanOperators
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.mock.MockitoSugar
 import org.scalatest.prop.GeneratorDrivenPropertyChecks
 import org.scalatest.{FlatSpecLike, Matchers}
-import shapeless.~>
+import spray.http.StatusCodes._
 import spray.http._
-import spray.routing.HttpService
 import spray.testkit.ScalatestRouteTest
-import org.scalacheck.Gen.alphaStr
-import org.scalacheck.Prop.BooleanOperators
+
 import scala.concurrent.Future
 import scala.util.Random
-import org.json4s.jackson.JsonMethods._
 
 class QuarterMasterSpecification extends Configuration with FlatSpecLike with ScalatestRouteTest
 with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
@@ -222,8 +221,6 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
     }
   }
 
-  import org.json4s.jackson.JsonMethods._
-  import spray.http.StatusCodes._
 
   it should "connect to the correct mappings" in  {
           val router = new QuarterMasterRoutes(qms)
@@ -235,10 +232,3 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
       }
 
 }
-
-
-
-
-
-
-
