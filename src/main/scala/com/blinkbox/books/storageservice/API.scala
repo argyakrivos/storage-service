@@ -29,14 +29,14 @@ class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
   val actorRefFactory = appConfig.arf
 
 
-  val mappingRoute = path("mappings") {
+  val mappingRoute = path(appConfig.mappingUri) {
     get{
       complete(qms.mapping)
     }
   }
 
   val storeAssetRoute = {
-    path("upload") {
+    path(appConfig.resourcesUri) {
       post {
         formFields('data.as[Array[Byte]], 'label.as[Int]) { (data, label) =>
           val f: Future[AssetToken] = (qms.storeAsset(data, label)).map[AssetToken]((_._1))
@@ -58,13 +58,14 @@ class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
   }
 
   val updateMappingRoute =
-    post {
-      parameters('mappingJson) {
-        (mappingString: String) => {
-          complete(StatusCodes.Accepted, qms.updateAndBroadcastMapping(mappingString))
+      post {
+        parameters('mappingJson) {
+          (mappingString: String) => {
+            complete(StatusCodes.Accepted, qms.updateAndBroadcastMapping(mappingString))
+          }
         }
       }
-    }
+
 
   val reloadMappingRoute = path(appConfig.refreshMappingUri) {
     get {
