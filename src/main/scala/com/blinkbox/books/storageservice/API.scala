@@ -32,17 +32,9 @@ import scala.util.control.NonFatal
 class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
  with CommonDirectives with BasicUnmarshallers with v2.JsonSupport {
 
-
-
-
-
-
-  implicit val timeout = AppConfig.timeout
+ implicit val timeout = AppConfig.timeout
   val appConfig = qms.appConfig
-
   val actorRefFactory = appConfig.arf
-
-
   val mappingRoute = path(appConfig.mappingUri) {
     get{
 
@@ -105,7 +97,7 @@ class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
 
 
   val reloadMappingRoute = path(appConfig.refreshMappingUri) {
-    get {
+    put {
       respondWithMediaType(MediaTypes.`application/json`) {
         complete(StatusCodes.OK, qms.loadMapping)
       }
