@@ -37,7 +37,6 @@ class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
   val actorRefFactory = appConfig.arf
   val mappingRoute = path(appConfig.mappingUri) {
     get{
-
       complete(MappingHelper.toJson(qms.mapping))
     }
   }
@@ -45,7 +44,7 @@ class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
   val storeAssetRoute = {
  implicit val formUnMarshaller2 = FormDataUnmarshallers.MultipartFormDataUnmarshaller
 
-    implicit def mi[T: Manifest] =
+    implicit def textunMarshaller[T: Manifest] =
       Unmarshaller[T](MediaTypes.`text/plain`) {
         case x: HttpEntity.NonEmpty =>
           try Serialization.read[T](x.asString(defaultCharset = HttpCharsets.`UTF-8`))
@@ -56,8 +55,6 @@ class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
     path(appConfig.resourcesUri) {
       post {
           entity(as[MultipartFormData]) { (form) =>
-            println(s"got the dataform ")
-
             val dataRight  = new MultipartFormField("data",form.get("data")).as[Array[Byte]]
             val labelRight = new MultipartFormField("label", form.get("label")).as[Int]
             val result = for{
@@ -65,8 +62,8 @@ class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
               label <- labelRight.right
             } yield ( qms.storeAsset(data, label).map[AssetToken](_._1))
             result  match  {
-            case Right(result ) => complete(StatusCodes.Accepted, result)
-            case  _ => complete(StatusCodes.InternalServerError)
+              case Right(result ) => complete(StatusCodes.Accepted, result)
+              case  _ => complete(StatusCodes.InternalServerError)
             }
           }
       }
@@ -76,7 +73,7 @@ class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
   val assetUploadStatus = path(appConfig.statusMappingUri) {
     get {
       parameters('token.as[String]).as(AssetToken) {
-        (assetToken: AssetToken) =>
+        (assetToken) =>
           respondWithMediaType(MediaTypes.`application/json`) {
             complete(StatusCodes.OK, qms.getStatus(assetToken))
           }
@@ -104,8 +101,6 @@ class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
     }
   }
 
-  val quarterMasterRoute = mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ appConfig.hsc.healthService.routes ~ storeAssetRoute
-
   private def exceptionHandler(implicit log: LoggingContext) = ExceptionHandler {
     case NonFatal(e) =>
       log.error(e, "Unhandled error")
@@ -117,7 +112,7 @@ class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
     handleExceptions(exceptionHandler) {
       neverCache {
         rootPath(appConfig.root) {
-          quarterMasterRoute
+          mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ appConfig.hsc.healthService.routes ~ storeAssetRoute
         }
       }
     }
