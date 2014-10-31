@@ -1,16 +1,25 @@
 package com.blinkbox.books.storageservice
 
+import java.lang.Throwable
+import java.lang.reflect.InvocationTargetException
+
 import akka.actor.{ActorSystem, Props}
 import akka.io.IO
 import akka.util.Timeout
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.logging.Loggers
+import com.blinkbox.books.spray.v2.JsonFormats._
+import com.blinkbox.books.spray.v2._
 import com.blinkbox.books.spray.{HttpServer, v2, Directives => CommonDirectives}
 import com.typesafe.scalalogging.slf4j.StrictLogging
+import org.json4s.jackson.Serialization
+import org.json4s.{MappingException, NoTypeHints, TypeHints, Formats}
 import org.slf4j.LoggerFactory
 import spray.can.Http
 import spray.http.StatusCodes._
-import spray.http.{MediaTypes, StatusCodes}
+import spray.http._
+import spray.httpx.marshalling.{BasicMarshallers, Marshaller}
+import spray.httpx.unmarshalling._
 import spray.routing._
 import spray.util.LoggingContext
 
@@ -21,7 +30,12 @@ import scala.util.control.NonFatal
 
 
 class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
- with CommonDirectives with v2.JsonSupport {
+ with CommonDirectives with BasicUnmarshallers with v2.JsonSupport {
+
+
+
+
+
 
   implicit val timeout = AppConfig.timeout
   val appConfig = qms.appConfig
@@ -31,17 +45,38 @@ class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
 
   val mappingRoute = path(appConfig.mappingUri) {
     get{
-      complete(qms.mapping)
+
+      complete(MappingHelper.toJson(qms.mapping))
     }
   }
 
   val storeAssetRoute = {
+ implicit val formUnMarshaller2 = FormDataUnmarshallers.MultipartFormDataUnmarshaller
+
+    implicit def mi[T: Manifest] =
+      Unmarshaller[T](MediaTypes.`text/plain`) {
+        case x: HttpEntity.NonEmpty =>
+          try Serialization.read[T](x.asString(defaultCharset = HttpCharsets.`UTF-8`))
+          catch {
+            case MappingException("unknown error", ite: InvocationTargetException) => throw ite.getCause
+          }
+      }
     path(appConfig.resourcesUri) {
       post {
-        formFields('data.as[Array[Byte]], 'label.as[Int]) { (data, label) =>
-          val f: Future[AssetToken] = (qms.storeAsset(data, label)).map[AssetToken]((_._1))
-          complete(StatusCodes.Accepted, f)
-        }
+          entity(as[MultipartFormData]) { (form) =>
+            println(s"got the dataform ")
+
+            val dataRight  = new MultipartFormField("data",form.get("data")).as[Array[Byte]]
+            val labelRight = new MultipartFormField("label", form.get("label")).as[Int]
+            val result = for{
+              data <- dataRight.right
+              label <- labelRight.right
+            } yield ( qms.storeAsset(data, label).map[AssetToken](_._1))
+            result  match  {
+            case Right(result ) => complete(StatusCodes.Accepted, result)
+            case  _ => complete(StatusCodes.InternalServerError)
+            }
+          }
       }
     }
   }
@@ -58,6 +93,7 @@ class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
   }
 
   val updateMappingRoute =
+    path(appConfig.mappingUri) {
       post {
         parameters('mappingJson) {
           (mappingString: String) => {
@@ -65,6 +101,7 @@ class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
           }
         }
       }
+    }
 
 
   val reloadMappingRoute = path(appConfig.refreshMappingUri) {
