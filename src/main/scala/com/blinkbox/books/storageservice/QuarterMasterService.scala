@@ -7,6 +7,7 @@ import com.blinkbox.books.spray.{Directives => CommonDirectives}
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.io.Source
+import scala.util.control.NonFatal
 
 trait MappingLoader {
   def load(path:String): String

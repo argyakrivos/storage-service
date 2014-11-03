@@ -46,11 +46,8 @@ case class QuarterMasterStorageWorker(swConfig: StorageWorkerConfig) extends Sto
   val delegateTypes = swConfig.delegateTypes
   val repo = AppConfig.repo
 
-  private def getDelegates(label: Int): Set[StorageDelegate] = {
-    val maybeDelegates: Option[Set[StorageDelegate]] = delegates.get(label)
-    val size = maybeDelegates.map(_.size).getOrElse(0)
-    maybeDelegates.getOrElse(Set.empty)
-  }
+  private def getDelegates(label: Int): Set[StorageDelegate] = delegates.get(label).getOrElse(Set.empty)
+
 
   override def storeAsset(assetToken: AssetToken, data: Array[Byte], label: Int): Future[Map[DelegateType, Status]] = {
     val storageDelegates: Set[StorageDelegate] = getDelegates(label)
@@ -60,6 +57,7 @@ case class QuarterMasterStorageWorker(swConfig: StorageWorkerConfig) extends Sto
     Future.traverse[StorageDelegate, (DelegateType, Status), Set](storageDelegates)((sd: StorageDelegate) => {
       sd.write(assetToken, data)
     }).recoverWith({ case _ => cleanUp(assetToken, label)}).map(_.toMap)
+
   }
 
   def makeMap[A](s:Set[Option[(DelegateType, A)]]):Map[DelegateType, A] = s.flatten.toMap
