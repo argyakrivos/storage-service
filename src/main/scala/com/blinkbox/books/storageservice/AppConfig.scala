@@ -31,7 +31,34 @@ case class RabbitMQConfig(c: Config, arf: ActorRefFactory) {
 
 case class DelegateConfig(delegate: StorageDelegate, labels: Set[Int])
 
-class StorageWorkerConfig(delegateConfigs: Set[DelegateConfig]) {
+
+case class AppConfig(c:Config, rmq: RabbitMQConfig, hsc: HealthServiceConfig, sc: StorageConfig, swc:StorageWorkerConfig) {
+  val root: Path = Path(c.getString("service.qm.api.public.root"))
+  val arf = rmq.arf
+  val host: String =c.getString("service.qm.api.public.host")
+  val effectivePort:Int =c.getInt("service.qm.api.public.effectivePort")
+  val mappingEventHandler = EventHeader(c.getString("service.qm.mappingEventHandler"))
+  val mappingpath = c.getString("service.qm.mappingpath")
+  val resourcesUri = c.getString("service.qm.api.public.resourcesUri")
+  val mappingUri = c.getString("service.qm.api.public.mappingUri")
+  val refreshMappingUri = c.getString("service.qm.api.public.refreshMappingUri")
+  val eventHeader: EventHeader = EventHeader(c.getString("service.qm.sender.eventHeader"))
+
+}
+
+object AppConfig {
+  implicit val timeout = Timeout(50L, TimeUnit.SECONDS)
+  val repo: TrieMap[DelegateKey, Progress] = new TrieMap[DelegateKey, Progress]
+  def apply(c: Config, arf: ActorRefFactory) = {
+    val storageConfig: StorageConfig = new StorageConfig(c, arf, repo)
+    new AppConfig(c,RabbitMQConfig(c, arf), HealthServiceConfig(arf), storageConfig, storageConfig.storageWorkerConfig)
+  }
+}
+
+
+class StorageWorkerConfig(c:Config, delegateConfigs: Set[DelegateConfig]) {
+  val minStorageDelegates= c.getInt("service.qm.storage.minStorageDelegates")
+
   def toImmutableMap[A, B](x: Map[A, collection.mutable.Set[B]]): Map[A, collection.immutable.Set[B]] = x.map((kv: ((A, collection.mutable.Set[B]))) => (kv._1, kv._2.toSet)).toMap
   val delegates: Map[Int, Set[StorageDelegate]] = getDelegates(delegateConfigs)
   def getDelegates(delegateConfigs: Set[DelegateConfig]): Map[Int, Set[StorageDelegate]] = {
@@ -42,35 +69,11 @@ class StorageWorkerConfig(delegateConfigs: Set[DelegateConfig]) {
   val delegateTypes = delegateConfigs.map((dc: DelegateConfig) => dc.delegate.delegateType)
 }
 
-case class AppConfig(c:Config, rmq: RabbitMQConfig, hsc: HealthServiceConfig, sc: StorageConfig, swc: StorageWorkerConfig) {
-  val resourcesUri = c.getString("service.qm.resourcesUri")
 
-  val root: Path = Path(c.getString("service.qm.api.public.root"))
-  val arf = rmq.arf
-  val host: String =c.getString("service.qm.api.public.host")
-
-  val effectivePort:Int =c.getInt("service.qm.api.public.effectivePort")
-
-  val mappingEventHandler = EventHeader(c.getString("service.qm.mappingEventHandler"))
-  val mappingpath = c.getString("service.qm.mappingpath")
-  val mappingUri = c.getString("service.qm.mappingUri")
-  val refreshMappingUri = c.getString("service.qm.refreshMappingUri")
-  val statusMappingUri = c.getString("service.qm.statusMappingUri")
-  val eventHeader: EventHeader = EventHeader(c.getString("service.qm.sender.eventHeader"))
-}
-
-object AppConfig {
-
-  implicit val timeout = Timeout(50L, TimeUnit.SECONDS)
-  val repo: TrieMap[DelegateKey, Progress] = new TrieMap[DelegateKey, Progress]
-  def apply(c: Config, arf: ActorRefFactory) = {
-    val localStoragePath = c.getString("service.qm.localStoragePath")
-    val  localstoragelabels:Set[Int] = c.getIntList("service.qm.localStorageLabels").asScala.toSet.map(Integer2int(_:Integer))
-    val deletgateConfigs = Set(DelegateConfig(new LocalStorageDelegate(repo,localStoragePath, new DelegateType("localStorage")), localstoragelabels))
-    new AppConfig(c,RabbitMQConfig(c, arf), HealthServiceConfig(arf), new StorageConfig(c,arf), new StorageWorkerConfig(deletgateConfigs))
-  }
-}
-
-case class StorageConfig(c:Config, arf: ActorRefFactory) {
-  val localPath = c.getString("service.qm.localPath")
+case class StorageConfig(c:Config, arf: ActorRefFactory, repo: TrieMap[DelegateKey, Progress] ) {
+  val localstoragelabels: Set[Int] = c.getIntList("service.qm.localStorageLabels").asScala.toSet.map(Integer2int(_: Integer))
+  val localStoragePath = c.getString("service.qm.localStoragePath")
+  val deletgateConfigs = Set(DelegateConfig(new LocalStorageDelegate(repo, localStoragePath, new DelegateType("localStorage")), localstoragelabels))
+  val localPath = c.getString("service.qm.storage.local.localPath")
+  val storageWorkerConfig = new StorageWorkerConfig(c,deletgateConfigs)
 }

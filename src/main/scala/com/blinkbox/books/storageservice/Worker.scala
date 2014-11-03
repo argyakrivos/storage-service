@@ -4,7 +4,7 @@ import java.nio.file.{FileSystems, Path}
 
 import com.blinkbox.books.spray.{Directives => CommonDirectives}
 import spray.http.DateTime
-
+import spray.util.NotImplementedException
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
@@ -12,11 +12,8 @@ import scala.concurrent.Future
 
 trait StorageService {
   def storeAsset(token: AssetToken, data: Array[Byte], label: Int): Future[Map[DelegateType, Status]]
-
   def getProgress(token: AssetToken): Future[Map[DelegateType, Progress]]
-
   def getStatus(assetToken: AssetToken): Future[Map[DelegateType, Status]]
-
   def cleanUp(assetToken: AssetToken, label: Int): Future[Set[(DelegateType, Status)]]
 }
 
@@ -55,10 +52,15 @@ case class QuarterMasterStorageWorker(swConfig: StorageWorkerConfig) extends Sto
     maybeDelegates.getOrElse(Set.empty)
   }
 
-  override def storeAsset(assetToken: AssetToken, data: Array[Byte], label: Int): Future[Map[DelegateType, Status]] =
-    Future.traverse[StorageDelegate, (DelegateType, Status), Set](getDelegates(label))((sd: StorageDelegate) => {
+  override def storeAsset(assetToken: AssetToken, data: Array[Byte], label: Int): Future[Map[DelegateType, Status]] = {
+    val storageDelegates: Set[StorageDelegate] = getDelegates(label)
+    if (storageDelegates.size<swConfig.minStorageDelegates){
+      throw new NotImplementedException(s" label $label is has no available storage delegates")
+    }
+    Future.traverse[StorageDelegate, (DelegateType, Status), Set](storageDelegates)((sd: StorageDelegate) => {
       sd.write(assetToken, data)
-    }).recoverWith({case _ => cleanUp(assetToken, label)}).map(_.toMap)
+    }).recoverWith({ case _ => cleanUp(assetToken, label)}).map(_.toMap)
+  }
 
   def makeMap[A](s:Set[Option[(DelegateType, A)]]):Map[DelegateType, A] = s.flatten.toMap
 

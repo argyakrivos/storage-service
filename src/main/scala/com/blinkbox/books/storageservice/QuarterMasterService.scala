@@ -14,10 +14,8 @@ trait MappingLoader {
 }
 
 case class FileMappingLoader() extends MappingLoader {
-
   override def load(path:String): String =
     Source.fromFile(path).mkString("")
-
   override def write(path:String, json: String): Unit = {
     val fw = new FileWriter(path)
     try {

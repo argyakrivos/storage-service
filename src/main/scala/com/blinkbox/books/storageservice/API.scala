@@ -1,6 +1,5 @@
 package com.blinkbox.books.storageservice
 
-import java.lang.Throwable
 import java.lang.reflect.InvocationTargetException
 
 import akka.actor.{ActorSystem, Props}
@@ -8,25 +7,22 @@ import akka.io.IO
 import akka.util.Timeout
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.logging.Loggers
-import com.blinkbox.books.spray.v2.JsonFormats._
-import com.blinkbox.books.spray.v2._
 import com.blinkbox.books.spray.{HttpServer, v2, Directives => CommonDirectives}
 import com.typesafe.scalalogging.slf4j.StrictLogging
+import org.json4s.MappingException
 import org.json4s.jackson.Serialization
-import org.json4s.{MappingException, NoTypeHints, TypeHints, Formats}
 import org.slf4j.LoggerFactory
 import spray.can.Http
 import spray.http.StatusCodes._
 import spray.http._
-import spray.httpx.marshalling.{BasicMarshallers, Marshaller}
 import spray.httpx.unmarshalling._
 import spray.routing._
 import spray.util.LoggingContext
 
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.control.NonFatal
+import spray.util.NotImplementedException
 
 
 class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
@@ -70,15 +66,15 @@ class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
     }
   }
 
-  val assetUploadStatus = path(appConfig.statusMappingUri) {
-    get {
-      parameters('token.as[String]).as(AssetToken) {
-        (assetToken) =>
-          respondWithMediaType(MediaTypes.`application/json`) {
-            complete(StatusCodes.OK, qms.getStatus(assetToken))
+  val assetUploadStatus =
+      get {
+        path(appConfig.resourcesUri / Segment).as(AssetToken)
+           { (assetToken:AssetToken) =>
+            respondWithMediaType(MediaTypes.`application/json`) {
+              complete(StatusCodes.OK, qms.getStatus(assetToken))
           }
-      }
-    }
+        }
+
   }
 
   val updateMappingRoute =
@@ -92,7 +88,6 @@ class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
       }
     }
 
-
   val reloadMappingRoute = path(appConfig.refreshMappingUri) {
     put {
       respondWithMediaType(MediaTypes.`application/json`) {
@@ -102,10 +97,13 @@ class QuarterMasterRoutes(qms: QuarterMasterService) extends HttpService
   }
 
   private def exceptionHandler(implicit log: LoggingContext) = ExceptionHandler {
+    case e :NotImplementedException =>  log.error(e, "Unhandled error")
+      uncacheable(NotImplemented, "code: UnknownLabel")
     case NonFatal(e) =>
       log.error(e, "Unhandled error")
       uncacheable(InternalServerError, None)
   }
+
   val log = LoggerFactory.getLogger(classOf[QuarterMasterRoutes])
 
   val routes = monitor(log) {
@@ -127,7 +125,7 @@ class WebService(config: AppConfig, qms:QuarterMasterService) extends HttpServic
 }
 
 object Boot extends App with Configuration with Loggers with StrictLogging {
-  logger.info("Starting readling list service")
+  logger.info("Starting quartermaster storage service")
   try {
     implicit val system = ActorSystem("storage-service", config)
      sys.addShutdownHook(system.shutdown())
@@ -142,5 +140,5 @@ object Boot extends App with Configuration with Loggers with StrictLogging {
       e.printStackTrace
       sys.exit(-1)
   }
-  logger.info("Started reading list service")
+  logger.info("Started quartermaster storage service")
 }
