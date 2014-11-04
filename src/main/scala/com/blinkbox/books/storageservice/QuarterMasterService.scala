@@ -2,6 +2,10 @@ package com.blinkbox.books.storageservice
 
 import java.io.FileWriter
 
+import akka.actor.{ActorRefFactory, Props}
+import com.blinkbox.books.logging.DiagnosticExecutionContext
+import com.blinkbox.books.rabbitmq.RabbitMqConfirmedPublisher.PublisherConfiguration
+import com.blinkbox.books.rabbitmq.{RabbitMqConfirmedPublisher, RabbitMqConfig, RabbitMq}
 import com.blinkbox.books.spray.{Directives => CommonDirectives}
 
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -27,29 +31,41 @@ case class FileMappingLoader() extends MappingLoader {
   }
 }
 
-case class QuarterMasterService(appConfig: AppConfig, initMapping:Mapping) {
+class MessageSender(config: BlinkboxRabbitMqConfig, arf:ActorRefFactory){
+  private val reliableConnection = RabbitMq.reliableConnection(RabbitMqConfig(config.serviceConfig))
+  val publisherConfiguration: PublisherConfiguration = PublisherConfiguration(config.senderString)
+  val qSender = arf.actorOf(Props(new RabbitMqConfirmedPublisher(reliableConnection, publisherConfiguration)), "QuarterMasterPublisher")
+  val executionContext = DiagnosticExecutionContext(arf.dispatcher)
+}
+
+case class QuarterMasterService(appConfig: AppConfig, initMapping:Mapping, messageSender:MessageSender) {
   val storageWorker = new QuarterMasterStorageWorker(appConfig.swc)
-  var mapping: Mapping = initMapping
+  var mapping= initMapping
+
 
  def cleanUp(assetToken: AssetToken, label: Int): Future[Map[DelegateType, Status]] =
    storageWorker.cleanUp(assetToken, label).map(_.toMap)
 
   def storeAsset(bytes: Array[Byte], label: Int): Future[(AssetToken, Future[Map[DelegateType, Status]])] = Future {
     val assetToken = genToken(bytes)
-    val f: Future[Map[DelegateType, Status]] = storageWorker.storeAsset(assetToken, bytes, label)
+    val f = storageWorker.storeAsset(assetToken, bytes, label)
     (assetToken, f)
   }
 
   def getStatus(token: AssetToken): Future[Map[DelegateType, Status]] =
     storageWorker.getStatus(token)
 
-  def genToken(data: Array[Byte]): AssetToken = new AssetToken(data.hashCode.toString)
+  def genToken(data: Array[Byte]): AssetToken = {
+    val md = java.security.MessageDigest.getInstance("SHA-1")
+    val ha =  new sun.misc.BASE64Encoder().encode(md.digest(data))
+    new AssetToken(ha)
+  }
 
   def updateAndBroadcastMapping(mappingStr: String): Future[String ] =
     (for {
       mapping <- Future{MappingHelper.fromJsonStr(mappingStr)}
       _ <- MappingHelper.store(appConfig.mappingpath, mapping)
-      _ <- MappingHelper.broadcastUpdate(appConfig.rmq.qSender, appConfig.eventHeader, mapping)
+      _ <- MappingHelper.broadcastUpdate(messageSender.qSender, appConfig.eventHeader, mapping)
     } yield mapping).recover { case _ => this.mapping }.map (MappingHelper.toJson)
 
   def set(newMapping:Mapping):Unit = this.mapping = newMapping
@@ -57,10 +73,9 @@ case class QuarterMasterService(appConfig: AppConfig, initMapping:Mapping) {
   def loadMapping(): Future[String] = {
       val oldMapping = this.mapping
       val loadAndSetFuture =for {
-        newMapping:Mapping <- MappingHelper.load(appConfig.mappingpath)
+        newMapping <- MappingHelper.load(appConfig.mappingpath)
         _ = set(newMapping)
       }yield MappingHelper.toJson(newMapping)
-
       loadAndSetFuture.recover[String]{case _ => MappingHelper.toJson(oldMapping)}
   }
 }

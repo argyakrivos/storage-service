@@ -21,9 +21,8 @@ case class UrlTemplate(serviceName:String, template:String){
 }
 
 object Status  extends Ordering[Status]{
-//  implicit val formats = DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
 
-  val neverStatus:Status = new Status(DateTime.MaxValue, false)
+  val neverStatus= new Status(DateTime.MaxValue, false)
   def isDone(progress:Progress):Boolean = progress.sizeWritten >= progress.assetData.totalSize
 
   override def compare(a: Status,b: Status): Int = a.eta.clicks compare b.eta.clicks
@@ -60,7 +59,6 @@ case class DelegateType(name:String)
 
 case class DelegateKey(delegateType:DelegateType, assetToken:AssetToken)
 
-
 object MappingHelper extends JsonMethods with v2.JsonSupport  {
   val EXTRACTOR_NAME = "extractor"
   val TEMPLATES_NAME = "templates"
@@ -74,12 +72,10 @@ object MappingHelper extends JsonMethods with v2.JsonSupport  {
 
   def toJson(m: Mapping): String =     write[Mapping](m)
 
-  def store(mappingPath: String, mapping: Mapping): Future[Unit] = Future {
-    MappingHelper.loader.write(mappingPath, MappingHelper.toJson(mapping))
-  }
-  def load(path:String): Future[Mapping] = Future {
-    loader.load(path)
-  }.map(fromJsonStr(_: String))
+  def store(mappingPath: String, mapping: Mapping): Future[Unit] =
+    Future(MappingHelper.loader.write(mappingPath, MappingHelper.toJson(mapping)))
+
+  def load(path:String): Future[Mapping] = Future(loader.load(path)).map(fromJsonStr(_))
 
   implicit val timeout = AppConfig.timeout
 
@@ -91,7 +87,6 @@ object MappingHelper extends JsonMethods with v2.JsonSupport  {
     import akka.pattern.ask
     qsender ? Event.json[Mapping](eventHeader, mapping)
   }
-
 }
 case class Mapping(extractor: String, templates: List[UrlTemplate])
 

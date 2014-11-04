@@ -22,20 +22,17 @@ case class HealthServiceConfig(arf: ActorRefFactory) {
     }
 }
 
-case class RabbitMQConfig(c: Config, arf: ActorRefFactory) {
-  val publisherConfiguration: PublisherConfiguration = PublisherConfiguration(c.getConfig("service.qm.sender"))
-  private val reliableConnection = RabbitMq.reliableConnection(RabbitMqConfig(c.getConfig("service.qm")))
-  val qSender = arf.actorOf(Props(new RabbitMqConfirmedPublisher(reliableConnection, publisherConfiguration)), "QuarterMasterPublisher")
-  val executionContext = DiagnosticExecutionContext(arf.dispatcher)
+case class BlinkboxRabbitMqConfig(c: Config) {
+   val senderString = c.getConfig("service.qm.sender")
+   val serviceConfig = c.getConfig("service.qm")
 }
 
 case class DelegateConfig(delegate: StorageDelegate, labels: Set[Int])
 
 
-case class AppConfig(c:Config, rmq: RabbitMQConfig, hsc: HealthServiceConfig, sc: StorageConfig, swc:StorageWorkerConfig) {
-  val root: Path = Path(c.getString("service.qm.api.public.root"))
-  val arf = rmq.arf
-  val host: String =c.getString("service.qm.api.public.host")
+case class AppConfig(c:Config, rmq: BlinkboxRabbitMqConfig, hsc: HealthServiceConfig, sc: StorageConfig, swc:StorageWorkerConfig) {
+  val root= Path(c.getString("service.qm.api.public.root"))
+  val host=c.getString("service.qm.api.public.host")
   val effectivePort:Int =c.getInt("service.qm.api.public.effectivePort")
   val mappingEventHandler = EventHeader(c.getString("service.qm.mappingEventHandler"))
   val mappingpath = c.getString("service.qm.mappingpath")
@@ -48,32 +45,31 @@ case class AppConfig(c:Config, rmq: RabbitMQConfig, hsc: HealthServiceConfig, sc
 
 object AppConfig {
   implicit val timeout = Timeout(50L, TimeUnit.SECONDS)
-  val repo: TrieMap[DelegateKey, Progress] = new TrieMap[DelegateKey, Progress]
+  val repo = new TrieMap[DelegateKey, Progress]
   def apply(c: Config, arf: ActorRefFactory) = {
-    val storageConfig: StorageConfig = new StorageConfig(c, arf, repo)
-    new AppConfig(c,RabbitMQConfig(c, arf), HealthServiceConfig(arf), storageConfig, storageConfig.storageWorkerConfig)
+    val storageConfig = new StorageConfig(c,  repo)
+    new AppConfig(c,BlinkboxRabbitMqConfig(c), HealthServiceConfig(arf), storageConfig, storageConfig.storageWorkerConfig)
   }
 }
 
 
-class StorageWorkerConfig(c:Config, delegateConfigs: Set[DelegateConfig]) {
+class StorageWorkerConfig(c:Config, delegateConfigs: Set[DelegateConfig], storageWorkerRepo: Map[DelegateKey, Progress]=AppConfig.repo.toMap) {
   val minStorageDelegates= c.getInt("service.qm.storage.minStorageDelegates")
-
-  def toImmutableMap[A, B](x: Map[A, collection.mutable.Set[B]]): Map[A, collection.immutable.Set[B]] = x.map((kv: ((A, collection.mutable.Set[B]))) => (kv._1, kv._2.toSet)).toMap
-  val delegates: Map[Int, Set[StorageDelegate]] = getDelegates(delegateConfigs)
+  val repo = storageWorkerRepo
+  def toImmutableMap[A, B](x: Map[A, collection.mutable.Set[B]]): Map[A, collection.immutable.Set[B]] = x.map((kv) => (kv._1, kv._2.toSet)).toMap
+  val delegates= getDelegates(delegateConfigs)
   def getDelegates(delegateConfigs: Set[DelegateConfig]): Map[Int, Set[StorageDelegate]] = {
-    val tmpMultiMap: MultiMap[Int, StorageDelegate] = new HashMap[Int, collection.mutable.Set[StorageDelegate]] with MultiMap[Int, StorageDelegate]
-    delegateConfigs.map((dc: DelegateConfig) => dc.labels.map((label: Int) => tmpMultiMap.addBinding(label, dc.delegate)))
+    val tmpMultiMap = new HashMap[Int, collection.mutable.Set[StorageDelegate]] with MultiMap[Int, StorageDelegate]
+    delegateConfigs.map((dc) => dc.labels.map((label) => tmpMultiMap.addBinding(label, dc.delegate)))
     toImmutableMap[Int, StorageDelegate](tmpMultiMap.toMap)
   }
-  val delegateTypes = delegateConfigs.map((dc: DelegateConfig) => dc.delegate.delegateType)
+  def delegateTypes() = delegateConfigs.map(_.delegate.delegateType)
 }
 
-
-case class StorageConfig(c:Config, arf: ActorRefFactory, repo: TrieMap[DelegateKey, Progress] ) {
-  val localstoragelabels: Set[Int] = c.getIntList("service.qm.localStorageLabels").asScala.toSet.map(Integer2int(_: Integer))
+case class StorageConfig(c:Config,  repo: TrieMap[DelegateKey, Progress] ) {
+  val localstoragelabels= c.getIntList("service.qm.localStorageLabels").asScala.toSet.map(Integer2int(_: Integer))
   val localStoragePath = c.getString("service.qm.localStoragePath")
   val deletgateConfigs = Set(DelegateConfig(new LocalStorageDelegate(repo, localStoragePath, new DelegateType("localStorage")), localstoragelabels))
   val localPath = c.getString("service.qm.storage.local.localPath")
-  val storageWorkerConfig = new StorageWorkerConfig(c,deletgateConfigs)
+  val storageWorkerConfig = new StorageWorkerConfig(c,deletgateConfigs, repo.toMap)
 }

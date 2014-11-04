@@ -3,7 +3,7 @@ swagger: "2.0"
 info:
   title: Storage Service
   description: Service-facing REST API for storage of resources on the cloud.
-  version: 1.0.0
+  version: 2.0.0
 basePath: /
 produces:
   - application/json
