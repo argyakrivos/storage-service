@@ -1,97 +1,97 @@
 package com.blinkbox.books.storageservice
 
-import java.nio.file.{FileSystems, Path}
+import java.nio.file.{FileSystems, Files, Path}
 
 import com.blinkbox.books.spray.{Directives => CommonDirectives}
 import spray.http.DateTime
-import spray.util.NotImplementedException
-import scala.collection.concurrent.TrieMap
+
+import scala.collection.mutable.{HashMap, MultiMap}
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
-import java.nio.file.Files
 
-trait StorageService {
-  def storeAsset(token: AssetToken, data: Array[Byte], label: Int): Future[Map[DelegateType, Status]]
-  def getProgress(token: AssetToken): Future[Map[DelegateType, Progress]]
-  def getStatus(assetToken: AssetToken): Future[Map[DelegateType, Status]]
-  def cleanUp(assetToken: AssetToken, label: Int): Future[Set[(DelegateType, Status)]]
+case class DelegateType(name: String)
+
+case class JobId(delegateType: DelegateType, assetToken: AssetToken)
+
+trait StorageDao {
+  val rootPath: String
+
+  def write(assetToken: AssetToken, data: Array[Byte]): Future[Unit]
+
+  def cleanUp(assetToken: AssetToken): Future[Unit]
 }
 
-trait StorageDelegate {
-  val repo: TrieMap[DelegateKey, Progress]
-  val delegateType: DelegateType
+case class StorageDelegate(repo: StorageWorkerRepo, delegateType: DelegateType, dao: StorageDao) {
+  def isValidStatus(status: Status) = status match {
+    case Status.notFound | Status.finished | Status.failed => false
+    case _ => true
+  }
 
-  def getStatus(token: AssetToken): Option[Status] =
-    repo.get(new DelegateKey(delegateType, token)) map (Status.toStatus(_))
+  def writeIfNotStarted(assetToken: AssetToken, data: Array[Byte]): Future[(DelegateType, Status)] = {
+    val jobId = JobId(delegateType, assetToken)
+    repo.getStatus(jobId).flatMap(status => isValidStatus(status) match {
+      case true => Future.successful(delegateType, status)
+      case _ => write(assetToken, data)
+    })
+  }
 
-  def genToken(data: Array[Byte]): AssetToken = new AssetToken(data.hashCode.toString)
+  def write(assetToken: AssetToken, data: Array[Byte]): Future[(DelegateType, Status)] = {
+    val numBytes = data.length
+    val started = DateTime.now
+    val jobId = JobId(delegateType, assetToken)
+    for {
+      _ <- repo.updateProgress(jobId, numBytes, started, 0)
+      _ <- Future(dao.write(assetToken, data))
+      _ <- repo.removeProgress(jobId)
+    } yield (delegateType, Status.finished)
+  }
 
-  def storeProgress = repo.put _
-
-  def getProgress(token: AssetToken): Progress = repo.get(new DelegateKey(delegateType, token)).get
-
-  def removeProgress(token: AssetToken) =
-    repo.remove(new DelegateKey(delegateType, token))
-
-  def updateProgress(token: AssetToken, size: Long, started: DateTime, bytesWritten: Long) =
-    repo.putIfAbsent(new DelegateKey(delegateType, token), new Progress(new AssetData(started, size), bytesWritten))
-
-  def write(assetToken: AssetToken, data: Array[Byte]): Future[(DelegateType, Status)]
-
-  def cleanUp(assetToken: AssetToken): Future[(DelegateType, Status)]
+  def cleanUp(assetToken: AssetToken): Future[(DelegateType, Status)] =
+    for {
+      _ <- Future(dao.cleanUp(assetToken))
+      _ <- repo.removeProgress(JobId(delegateType, assetToken))
+    } yield (delegateType, Status.failed)
 }
 
-case class QuarterMasterStorageWorker(swConfig: StorageWorkerConfig) extends StorageService {
-  val delegates = swConfig.delegates
-  val delegateTypes = swConfig.delegateTypes
-  val repo = swConfig.repo
+case class StorageManager(repo: StorageWorkerRepo, delegateConfigs: Set[DelegateConfig]) {
+  val delegateTypes = delegateConfigs.map(_.delegate.delegateType)
+  val label2Delegates = getDelegates(delegateConfigs)
 
-  private def getDelegates(label: Int): Set[StorageDelegate] = delegates.get(label).getOrElse(Set.empty)
+  private def toImmutableMap[A, B](x: collection.mutable.Map[A, collection.mutable.Set[B]]): Map[A, collection.immutable.Set[B]] =
+    x.map((kv) => (kv._1, kv._2.toSet)).toMap
 
-  override def storeAsset(assetToken: AssetToken, data: Array[Byte], label: Int): Future[Map[DelegateType, Status]] = {
-    val storageDelegates: Set[StorageDelegate] = getDelegates(label)
-    if (storageDelegates.size<swConfig.minStorageDelegates){
-      throw new NotImplementedException(s" label $label is has no available storage delegates")
-    }
-    if (data.size<1){
-      throw new IllegalArgumentException(s" no data")
-    }
+  private def getDelegates(delegateConfigs: Set[DelegateConfig]): Map[Int, Set[StorageDelegate]] = {
+    val tmpMultiMap = new HashMap[Int, collection.mutable.Set[StorageDelegate]] with MultiMap[Int, StorageDelegate]
+    delegateConfigs.map((dc) => dc.labels.map((label) => tmpMultiMap.addBinding(label, dc.delegate)))
+    toImmutableMap[Int, StorageDelegate](tmpMultiMap)
+  }
+
+  def getDelegatesForLabel(label: Int): Set[StorageDelegate] = {
+    label2Delegates.getOrElse(label, Set.empty)
+  }
+
+  def storeAsset(assetToken: AssetToken, data: Array[Byte], label: Int): Future[Map[DelegateType, Status]] = {
+    val storageDelegates: Set[StorageDelegate] = getDelegatesForLabel(label)
     Future.traverse[StorageDelegate, (DelegateType, Status), Set](storageDelegates)(_.write(assetToken, data))
       .recoverWith({ case _ => cleanUp(assetToken, label)}).map(_.toMap)
   }
 
-  def makeMap[A](s:Set[Option[(DelegateType, A)]]):Map[DelegateType, A] = s.flatten.toMap
-
-  override def getStatus(assetToken: AssetToken): Future[Map[DelegateType, Status]] =
+  def getStatus(assetToken: AssetToken): Future[Map[DelegateType, Status]] =
     Future.traverse(delegateTypes)((dt) =>
-      Future (repo.get(DelegateKey(dt, assetToken)).map((p) => (dt, Status.toStatus(p))))).map(makeMap(_))
+      repo.getStatus(JobId(dt, assetToken)).map((dt, _))).map(_.toMap)
 
-  override def getProgress(assetToken: AssetToken): Future[Map[DelegateType, Progress]] =
+  def getProgress(assetToken: AssetToken): Future[Map[DelegateType, Option[Progress]]] =
     Future.traverse(delegateTypes)((dt) =>
-      Future(repo.get(DelegateKey(dt, assetToken)).map((dt, _)))).map(makeMap _)
+      repo.getProgress(JobId(dt, assetToken)).map((dt, _))).map(_.toMap)
 
-  override def cleanUp(assetToken: AssetToken, label: Int): Future[Set[(DelegateType, Status)]] =
-    Future.traverse(getDelegates(label))(_.cleanUp(assetToken))
+  def cleanUp(assetToken: AssetToken, label: Int): Future[Set[(DelegateType, Status)]] =
+    Future.traverse(getDelegatesForLabel(label))(_.cleanUp(assetToken))
 }
 
-case class LocalStorageDelegate(repo: TrieMap[DelegateKey, Progress], path: String, delegateType: DelegateType) extends StorageDelegate {
+case class LocalStorageDao(rootPath: String) extends StorageDao {
+  def getPath(assetToken: AssetToken): Path = FileSystems.getDefault.getPath(rootPath, assetToken.toFileString())
 
-  def getPath(assetToken: AssetToken): Path = FileSystems.getDefault.getPath(path, assetToken.toFileString)
+  override def write(assetToken: AssetToken, data: Array[Byte]): Future[Unit] = Future(Files.write(getPath(assetToken), data))
 
-  override def write(assetToken: AssetToken, data: Array[Byte]): Future[(DelegateType, Status)] = Future {
-    val numBytes= data.length
-    val started = DateTime.now
-    updateProgress(assetToken, numBytes, started, 0)
-    Files.write(getPath(assetToken), data)
-    val status = Status.toStatus(this.getProgress(assetToken))
-    removeProgress(assetToken)
-    (delegateType, status)
-  }
-
-  override def cleanUp(assetToken: AssetToken): Future[(DelegateType, Status)] =
-    Future {
-      Files.deleteIfExists(getPath(assetToken))
-      removeProgress(assetToken)
-      (delegateType, Status.neverStatus)
-    }
+  override def cleanUp(assetToken: AssetToken): Future[Unit] = Future(Files.deleteIfExists(getPath(assetToken))).map(_ => ())
 }
