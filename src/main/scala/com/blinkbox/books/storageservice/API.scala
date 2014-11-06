@@ -120,7 +120,7 @@ object Boot extends App with Configuration with Loggers with StrictLogging {
     implicit val requestTimeout = Timeout(5.seconds)
     val appConfig = AppConfig(config, system)
     val webService = system.actorOf(Props(classOf[WebService], appConfig), "storage-service")
-    HttpServer(Http.Bind(webService, interface = "localhost", port = 8080))
+    HttpServer(Http.Bind(webService, interface = appConfig.host, port = appConfig.effectivePort))
   } catch {
     case e: Throwable =>
       logger.error("Error at startup, exiting", e)

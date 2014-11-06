@@ -1,6 +1,7 @@
 package com.blinkbox.books.storageservice
 
 import java.io.FileWriter
+import java.util.concurrent.Executors
 
 import akka.actor.{ActorRef, ActorRefFactory, Props}
 import akka.pattern.ask
@@ -17,7 +18,7 @@ import spray.http.DateTime
 import spray.util.NotImplementedException
 
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContext, Future}
 import scala.io.Source
 
 case class UserId(id: String)
@@ -72,9 +73,9 @@ object MappingHelper extends JsonMethods with v2.JsonSupport {
   def toJson(m: Mapping): String = write[Mapping](m)
 
   def store(mappingPath: String, mapping: Mapping): Future[Unit] =
-    Future(MappingHelper.loader.write(mappingPath, MappingHelper.toJson(mapping)))
+    Future(MappingHelper.loader.write(mappingPath, MappingHelper.toJson(mapping)))(ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor))
 
-  def load(path: String): Future[Mapping] = Future(loader.load(path)).map(fromJsonStr(_))
+  def load(path: String): Future[Mapping] = Future(loader.load(path)).map(fromJsonStr(_))(ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor))
 
   def broadcastUpdate(qsender: ActorRef, eventHeader: EventHeader, mapping: Mapping): Future[Any] = {
     qsender ? Event.json[Mapping](eventHeader, mapping)

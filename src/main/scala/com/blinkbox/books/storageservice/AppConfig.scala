@@ -39,7 +39,6 @@ case class AppConfig(c: Config, rmq: BlinkboxRabbitMqConfig, hsc: HealthServiceC
 
 object AppConfig {
   implicit val timeout = Timeout(50L, TimeUnit.SECONDS)
-
   def apply(c: Config, arf: ActorRefFactory) =
     new AppConfig(c, BlinkboxRabbitMqConfig(c), HealthServiceConfig(arf), StorageConfig(c))
 }

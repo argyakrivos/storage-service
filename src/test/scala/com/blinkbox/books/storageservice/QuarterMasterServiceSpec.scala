@@ -53,14 +53,14 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
   val mockStorageManager  = MockitoSugar.mock[StorageManager]
   val qms = new QuarterMasterService(appConfig, initMapping, mockSender, mockStorageManager)
 
-  val templateGen2: Gen[JValue] = for {
+  val templateGenDirectToJson: Gen[JValue] = for {
     serviceName <- arbitrary[String]
     template <- arbitrary[String]
   } yield ("serviceName" -> serviceName) ~ ("template" -> template)
 
   val mappingGen2 = for {
     extractor <- arbitrary[String]
-    templateList <- Gen.listOf(templateGen2)
+    templateList <- Gen.listOf(templateGenDirectToJson)
   } yield ("extractor" -> extractor) ~ ("templates" -> templateList)
 
   val mappingGen = for {
