@@ -11,23 +11,16 @@ import spray.http.Uri.Path
 
 import scala.collection.JavaConverters._
 
-case class HealthServiceConfig(arf: ActorRefFactory) {
-  val healthService =
-    new HealthCheckHttpService {
-      override implicit def actorRefFactory = arf
 
-      override val basePath = Path("/")
-    }
-}
 
 case class BlinkboxRabbitMqConfig(c: Config) {
   val senderString = c.getConfig("service.qm.sender")
   val serviceConfig = c.getConfig("service.qm")
 }
 
-case class DelegateConfig(delegate: StorageDelegate, labels: Set[Int])
+case class DelegateConfig(delegate: StorageDelegate, labels: Set[Label])
 
-case class AppConfig(c: Config, rmq: BlinkboxRabbitMqConfig, hsc: HealthServiceConfig, sc: StorageConfig) {
+case class AppConfig(c: Config, rmq: BlinkboxRabbitMqConfig,  sc: StorageConfig) {
   val root = Path(c.getString("service.qm.api.public.root"))
   val host = c.getString("service.qm.api.public.host")
   val effectivePort = c.getInt("service.qm.api.public.effectivePort")
@@ -40,7 +33,7 @@ case class AppConfig(c: Config, rmq: BlinkboxRabbitMqConfig, hsc: HealthServiceC
 object AppConfig {
   implicit val timeout = Timeout(50L, TimeUnit.SECONDS)
   def apply(c: Config, arf: ActorRefFactory) =
-    new AppConfig(c, BlinkboxRabbitMqConfig(c), HealthServiceConfig(arf), StorageConfig(c))
+    new AppConfig(c, BlinkboxRabbitMqConfig(c),  StorageConfig(c))
 }
 
 case class StorageConfig(c: Config) {

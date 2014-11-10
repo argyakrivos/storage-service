@@ -20,6 +20,7 @@ import spray.util.NotImplementedException
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.{ExecutionContext, Future}
 import scala.io.Source
+import scala.util.control.NonFatal
 
 case class UserId(id: String)
 
@@ -28,6 +29,7 @@ case class AssetData(timeStarted: DateTime, totalSize: Long)
 case class UrlTemplate(serviceName: String, template: String) {
   implicit val formats = DefaultFormats + FieldSerializer[UrlTemplate]()
 }
+
 
 case class AssetToken(token: String) {
   def toFileString(): String = token
@@ -75,7 +77,7 @@ object MappingHelper extends JsonMethods with v2.JsonSupport {
   def store(mappingPath: String, mapping: Mapping): Future[Unit] =
     Future(MappingHelper.loader.write(mappingPath, MappingHelper.toJson(mapping)))(ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor))
 
-  def load(path: String): Future[Mapping] = Future(loader.load(path)).map(fromJsonStr(_))(ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor))
+  def load(path: String): Future[Mapping] = Future(loader.load(path)).map(fromJsonStr)(ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor))
 
   def broadcastUpdate(qsender: ActorRef, eventHeader: EventHeader, mapping: Mapping): Future[Any] = {
     qsender ? Event.json[Mapping](eventHeader, mapping)
@@ -89,22 +91,26 @@ class MessageSender(config: BlinkboxRabbitMqConfig, arf: ActorRefFactory) {
   val executionContext = DiagnosticExecutionContext(arf.dispatcher)
 }
 
+case class Label(label:String)
+
 case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, messageSender: MessageSender, storageManager: StorageManager) {
   var mapping = initMapping
 
-  def cleanUp(assetToken: AssetToken, label: Int): Future[Map[DelegateType, Status]] =
+  def cleanUp(assetToken: AssetToken, label: Label): Future[Map[DelegateType, Status]] =
     storageManager.cleanUp(assetToken, label).map(_.toMap)
 
-  def storeAsset(bytes: Array[Byte], label: Int): Future[(AssetToken, Future[Map[DelegateType, Status]])] = Future {
-    if (storageManager.getDelegatesForLabel(label).size < appConfig.minStorageDelegates) {
-      throw new NotImplementedException(s"label $label is has no available storage delegates")
-    }
-    if (bytes.size < 1) {
-      throw new IllegalArgumentException(s"no data")
-    }
-    val assetToken = genToken(bytes)
-    val f = storageManager.storeAsset(assetToken, bytes, label)
-    (assetToken, f)
+  def storeAsset(bytes: Array[Byte], label: Label): Future[(AssetToken, Future[Map[DelegateType, Status]])] = Future {
+    val delegatesForLabel: Set[StorageDelegate] = storageManager.getDelegatesForLabel(label)
+    val delegateConfigs = storageManager.delegateConfigs
+    if (delegatesForLabel.size < appConfig.minStorageDelegates) {
+        throw new NotImplementedException(s"label $label is has no available storage delegates")
+      }
+      if (bytes.size < 1) {
+        throw new IllegalArgumentException(s"no data")
+      }
+      val assetToken = genToken(bytes)
+      val f = storageManager.storeAsset(assetToken, bytes, label)
+      (assetToken, f)
   }
 
   def getStatus(token: AssetToken): Future[Map[DelegateType, Status]] =

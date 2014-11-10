@@ -1,11 +1,13 @@
 package com.blinkbox.books.storageservice
 
+import akka.testkit.{TestKit, EventFilter, ImplicitSender}
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
 import com.blinkbox.books.test.MatcherSugar.eql
 import org.json4s.JsonDSL._
 import org.json4s.jackson.JsonMethods._
 import org.json4s.{FieldSerializer, JValue}
+import org.junit.runner.RunWith
 import org.mockito.AdditionalMatchers.aryEq
 import org.mockito.Matchers.any
 import org.mockito.Mockito.{atLeastOnce, never, reset, times, verify, when}
@@ -15,43 +17,35 @@ import org.scalacheck.Arbitrary.arbitrary
 import org.scalacheck.Gen
 import org.scalacheck.Gen.alphaStr
 import org.scalacheck.Prop.BooleanOperators
-import org.scalatest.concurrent.ScalaFutures
+import org.scalatest.concurrent.{AsyncAssertions, ScalaFutures}
+import org.scalatest.junit.JUnitRunner
 import org.scalatest.mock.MockitoSugar
 import org.scalatest.prop.GeneratorDrivenPropertyChecks
 import org.scalatest.{FlatSpecLike, Matchers}
 import spray.http.StatusCodes._
 import spray.http._
+import akka.testkit.{EventFilter, ImplicitSender, TestKit}
+import spray.httpx.marshalling.MetaMarshallers
 import spray.testkit.ScalatestRouteTest
 import spray.util.NotImplementedException
 import scala.concurrent.Future
 import scala.util.Random
+import org.scalacheck.Shrink
 
+@RunWith(classOf[JUnitRunner])
 class QuarterMasterSpecification extends Configuration with FlatSpecLike with ScalatestRouteTest
-with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
-  implicit val formats = DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
-  val initMapping: Mapping = Mapping("", List())
+with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.testkit.TestKitBase with AsyncAssertions {
+  val minlabel = 0
+  val maxlabel = 3
 
-  import scala.collection.JavaConverters._
+  val labelGen = for {
+    labelNum:Int <- Gen.chooseNum(minlabel, maxlabel)
+  } yield Label(labelNum.toString)
 
-  config.entrySet().asScala.map(println(_))
   val templateGen = for {
     serviceName <- arbitrary[String]
     template <- arbitrary[String]
   } yield UrlTemplate(serviceName, template)
-
-  val mappingJsonStr = """{"extractor":"^.*/(?P<filename>$.*)\\.(?P<extenstion>.{2,3})\\?",
-      "templates":[{
-      "serviceName":"azure-a",
-      "template":"http://azureservices.com/blinkbox/\\g<filename>.\\g<extenstion>"}]}"""
-
-  val appConfig = AppConfig(config, MockitoSugar.mock[BlinkboxRabbitMqConfig], HealthServiceConfig(system), MockitoSugar.mock[StorageConfig])
-  MappingHelper.loader = new MappingLoader {
-    override def load(path: String): String = mappingJsonStr
-    override def write(path: String, json: String): Unit = ()
-  }
-  val mockSender = MockitoSugar.mock[MessageSender]
-  val mockStorageManager  = MockitoSugar.mock[StorageManager]
-  val qms = new QuarterMasterService(appConfig, initMapping, mockSender, mockStorageManager)
 
   val templateGenDirectToJson: Gen[JValue] = for {
     serviceName <- arbitrary[String]
@@ -77,61 +71,75 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
       }
     }
   }
-
-  def failingWriteAnswer(e: Throwable): Answer[Future[(DelegateType, Status)]] = new Answer[Future[(DelegateType, Status)]] {
-    override def answer(invocation: InvocationOnMock): Future[(DelegateType, Status)] = Future.failed(e)
-  }
-
-  def getMockDelegate(delegateType: DelegateType, answer: Answer[Future[(DelegateType, Status)]]):StorageDelegate = {
-    val mockDelegate = MockitoSugar.mock[StorageDelegate]
-    when(mockDelegate.cleanUp(any[AssetToken])).thenReturn(Future.successful((delegateType, Status.failed)))
-    when(mockDelegate.delegateType).thenReturn(delegateType)
-    when(mockDelegate.write(any[AssetToken], any[Array[Byte]])).thenAnswer(answer)
-    mockDelegate
-  }
-
-  def getFailingDelegate(delegateType: DelegateType, e: Exception, repo:StorageWorkerRepo) = {
-    val mockDelegate = MockitoSugar.mock[StorageDelegate]
-    when(mockDelegate.cleanUp(any[AssetToken])).thenReturn(Future.successful((delegateType, Status.failed)))
-    when(mockDelegate.delegateType).thenReturn(delegateType)
-    when(mockDelegate.write(any[AssetToken], any[Array[Byte]])).thenReturn(Future.failed(e))
-    mockDelegate
-  }
-
   val mockSuccessfulDelegateConfigGen = for {
-    labels <- Gen.listOf(Gen.chooseNum(minlabel, maxlabel))
+    labels <- Gen.listOf(labelGen)
     delegateType = DelegateType("mockingDelegate" +System.nanoTime)
-  } yield new DelegateConfig(getMockDelegate(delegateType, successfulWriteAnswer(delegateType)), labels.toSet)
-
-  def mockSuccessfulDelegateConfigGenWithLabel(label: Int) =
-  {
-   val delegateType = DelegateType("mockingDelegate" +System.nanoTime)
-   new DelegateConfig(getMockDelegate(delegateType, successfulWriteAnswer(delegateType)), Set(label))
- }
-
-  def mockFailingDelegateConfigGen(repo:StorageWorkerRepo)  = for {
-    labels <- Gen.listOf(Gen.chooseNum(minlabel, maxlabel))
-    delegateType = DelegateType("mockingDelegate" +System.nanoTime)
-  } yield new DelegateConfig(getFailingDelegate(delegateType, new IllegalArgumentException, repo), labels.toSet)
+  } yield new DelegateConfig(getSuccessfulDelegate(delegateType, successfulWriteAnswer(delegateType)), labels.toSet)
 
   val mockSuccessfulDelegateConfigSetGen = for {
     successfulDelegateConfigs <- Gen.listOf(mockSuccessfulDelegateConfigGen)
   } yield successfulDelegateConfigs.toSet
 
-  def mockFailingDelegateSetGen(repo:StorageWorkerRepo) = for {
-    failingWriters <- Gen.nonEmptyListOf(mockFailingDelegateConfigGen(repo))
-  } yield failingWriters.toSet
+  implicit val formats = DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
+  val initMapping: Mapping = Mapping("", List())
 
-  def mockFailingMixedDelegateSetGen(repo:StorageWorkerRepo) = for {
-    successfulDelegateConfigs <- Gen.listOf(mockSuccessfulDelegateConfigGen)
-    failingDelegateConfigs <- Gen.listOf(mockFailingDelegateConfigGen(repo))
-  } yield Random.shuffle(failingDelegateConfigs.union(successfulDelegateConfigs))
+  val mappingJsonStr = """{"extractor":"^.*/(?P<filename>$.*)\\.(?P<extenstion>.{2,3})\\?",
+      "templates":[{
+      "serviceName":"azure-a",
+      "template":"http://azureservices.com/blinkbox/\\g<filename>.\\g<extenstion>"}]}"""
+
+  val appConfig = AppConfig(config, MockitoSugar.mock[BlinkboxRabbitMqConfig], MockitoSugar.mock[StorageConfig])
+  MappingHelper.loader = new MappingLoader {
+    override def load(path: String): String = mappingJsonStr
+    override def write(path: String, json: String): Unit = ()
+  }
+
+  def failingWriteAnswer(e: Throwable): Answer[Future[(DelegateType, Status)]] = new Answer[Future[(DelegateType, Status)]] {
+    override def answer(invocation: InvocationOnMock): Future[(DelegateType, Status)] = Future.failed(e)
+  }
+
+  def getSuccessfulDelegate(delegateType: DelegateType, answer: Answer[Future[(DelegateType, Status)]]):StorageDelegate = {
+    val mockStorageDao = MockitoSugar.mock[StorageDao]
+    val mockRepo = MockitoSugar.mock[StorageWorkerRepo]
+    val delegate =new StorageDelegate(mockRepo, delegateType, mockStorageDao)
+    when(mockRepo.getStatus(any[JobId])).thenReturn(Future.successful(Status.notFound))
+    when(mockRepo.updateProgress(any[JobId],any[Long], any[DateTime], any[Long])).thenReturn(Future.successful(()))
+    when(mockRepo.removeProgress(any[JobId])).thenReturn(Future.successful(()))
+    when(mockStorageDao.write(any[AssetToken], any[Array[Byte]])).thenAnswer(new Answer[Future[Unit]] {
+      override def answer(invocation: InvocationOnMock): Future[Unit] = {Future.successful(())}
+    })
+    delegate
+  }
+
+  def getFailingDelegate(delegateType: DelegateType, e: Exception) = {
+    val mockStorageDao = MockitoSugar.mock[StorageDao]
+    val mockRepo = MockitoSugar.mock[StorageWorkerRepo]
+    val delegate =new StorageDelegate(mockRepo, delegateType, mockStorageDao)
+    when(mockRepo.getStatus(any[JobId])).thenReturn(Future.successful(Status.notFound))
+    when(mockRepo.updateProgress(any[JobId],any[Long], any[DateTime], any[Long])).thenReturn(Future.successful(()))
+    when(mockRepo.removeProgress(any[JobId])).thenReturn(Future.successful(()))
+    when(mockStorageDao.cleanUp(any[AssetToken])).thenAnswer(new Answer[Future[Unit]] {
+      override def answer(invocation: InvocationOnMock): Future[Unit] = {Future.successful(())}
+    })
+    when(mockStorageDao.write(any[AssetToken], any[Array[Byte]])).thenAnswer(new Answer[Future[Unit]] {
+      override def answer(invocation: InvocationOnMock): Future[Unit] = { Future.failed(e)}
+    })
+    delegate
+  }
+
+  def mockSuccessfulDelegateConfigGenWithLabel(label: Label) = {
+   val delegateType = DelegateType("mockingDelegate" +System.nanoTime)
+   new DelegateConfig(getSuccessfulDelegate(delegateType, successfulWriteAnswer(delegateType)), Set(label))
+  }
 
   "The quarterMasterService" should "update the mapping file " in {
     forAll(mappingGen, mappingGen2) { (oldMapping, newMapping) =>
       (!newMapping.extract[Mapping].templates.isEmpty || true) ==> {
         val json = newMapping.toString
         val expected= compact(render(newMapping))
+        val mockSender = MockitoSugar.mock[MessageSender]
+        val mockStorageManager  = MockitoSugar.mock[StorageManager]
+        val qms = new QuarterMasterService(appConfig, initMapping, mockSender, mockStorageManager)
         val f = qms.updateAndBroadcastMapping(expected)
         whenReady(f)(_ == expected)
       }
@@ -140,6 +148,9 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
 
   "The quarterMasterService" should "not update the mapping with bad json " in {
     forAll(mappingGen, alphaStr) { (oldMapping, json) =>
+      val mockSender = MockitoSugar.mock[MessageSender]
+      val mockStorageManager  = MockitoSugar.mock[StorageManager]
+      val qms = new QuarterMasterService(appConfig, initMapping, mockSender, mockStorageManager)
       qms.mapping = oldMapping
       val expected = MappingHelper.toJson(oldMapping)
       val f = qms.updateAndBroadcastMapping(json)
@@ -153,6 +164,9 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
         override def load(path: String): String = bogusMapping
         override def write(path: String, json:String): Unit= ()
       }
+      val mockSender = MockitoSugar.mock[MessageSender]
+      val mockStorageManager  = MockitoSugar.mock[StorageManager]
+      val qms = new QuarterMasterService(appConfig, initMapping, mockSender, mockStorageManager)
       qms.mapping = oldMapping
       val expected =MappingHelper.toJson(oldMapping)
       val f = qms.loadMapping
@@ -167,6 +181,9 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
         override def load(path: String): String = loadStr
         override def write(path: String, json:String): Unit= ()
       }
+      val mockSender = MockitoSugar.mock[MessageSender]
+      val mockStorageManager  = MockitoSugar.mock[StorageManager]
+      val qms = new QuarterMasterService(appConfig, initMapping, mockSender, mockStorageManager)
       qms.mapping = oldMapping
       val f = qms.loadMapping
       whenReady(f)((s) => {
@@ -174,86 +191,58 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
       })
     }
   }
-  val minlabel = 0
-  val maxlabel = 3
-   def delegateConfiguredForLabel(label:Int,  delegateConfigs: Set[DelegateConfig]): Boolean = delegateConfigs.exists( _.labels.contains(label))
 
-  "the quarterMaster" should "upload assets" in {
-    forAll(mockSuccessfulDelegateConfigSetGen, arbitrary[Array[Byte]], arbitrary[Int]) {
-      (mockDelegateConfigSet, data, label) => {
-          val repo = new InMemoryRepo
-          val storageManager = new StorageManager(repo,mockDelegateConfigSet.toSet)
-          val newConfig = AppConfig(config, appConfig.rmq, appConfig.hsc, appConfig.sc)
-          val mockSender = MockitoSugar.mock[MessageSender]
-          val qms2 = new QuarterMasterService(newConfig, initMapping, mockSender, storageManager)
-          val callAccepted = qms2.storeAsset(data, label)
-          val f = callAccepted.flatMap[Map[DelegateType, Status]]((callFinished) => callFinished._2)
-        if (!delegateConfiguredForLabel(label, mockDelegateConfigSet)) {
-          whenReady(f.failed) {
-            e => e shouldBe a [NotImplementedException]
-          }
-        } else
-        if (data.size < 1) {
-          whenReady(f.failed) {
-            e => e shouldBe a [IllegalArgumentException]
-          }
-        }else
-          whenReady(f)((s) => {
-            val matchingDelegates = mockDelegateConfigSet.filter((dc) => dc.labels.contains(label)).map(_.delegate)
-            val nonMatchingDelegates = mockDelegateConfigSet.filter((dc) => !dc.labels.contains(label)).map(_.delegate)
-            val size = s.size
-            val msize= matchingDelegates.size
-            val assetToken= callAccepted.futureValue._1
-            matchingDelegates.map(verify(_, times(1)).write(eql(assetToken), aryEq(data)))
-            nonMatchingDelegates.map(verify(_, never).write(any[AssetToken], any[Array[Byte]]))
-            size shouldBe msize
-            size == msize
-          })
-        }
-    }
-  }
+  val  mockFailingDelegateConfigGen  = for {
+    labels <- Gen.listOf(labelGen)
+    delegateType = DelegateType("mockingDelegate" +System.nanoTime)
+  } yield new DelegateConfig(getFailingDelegate(delegateType, new IllegalStateException), labels.toSet)
+
 
   "the quarterMaster" should "clean up failed assets" in {
+    val label = Label("2")
+    val labeledFailingDelegateConfigGen = for {
+      labels <- Gen.listOf(labelGen)
+      delegateType = DelegateType("mockingDelegate" + System.nanoTime)
+    } yield new DelegateConfig(getFailingDelegate(delegateType, new IllegalStateException), labels.toSet.+(label))
+    forAll(Gen.listOf(mockSuccessfulDelegateConfigGen), Gen.nonEmptyListOf(labeledFailingDelegateConfigGen),
+      Gen.nonEmptyListOf(arbitrary[Byte])
+    ) {
+      (successfulDelegateSet, mockFailingDelegateSet, dataList) => {
+        mockFailingDelegateSet
+        val w = new Waiter
+        val data = dataList.toArray
         val repo = MockitoSugar.mock[StorageWorkerRepo]
-    forAll(mockSuccessfulDelegateConfigSetGen, mockFailingDelegateSetGen(repo), arbitrary[Array[Byte]], arbitrary[Int]) {
-      (successfulDelegateSet, mockFailingDelegateSet, data, label) => {
-        reset(repo)
-          when(repo.updateProgress(any[JobId], any[Long], any[DateTime], any[Long])).thenReturn(Future.successful(()))
-          when(repo.removeProgress(any[JobId])).thenReturn(Future.successful(()))
+        when(repo.updateProgress(any[JobId], any[Long], any[DateTime], any[Long])).thenReturn(Future.successful(()))
+        when(repo.removeProgress(any[JobId])).thenReturn(Future.successful(()))
         when(repo.getStatus(any[JobId])).thenReturn(Future(Status.notFound))
-        val randomSuccessAndFailingWriterConfigs = Random.shuffle(successfulDelegateSet.union(mockFailingDelegateSet))
-        val storageManager = new StorageManager(repo,randomSuccessAndFailingWriterConfigs.toSet)
-        val newConfig = AppConfig(config, appConfig.rmq, appConfig.hsc, appConfig.sc)
+        val randomSuccessAndFailingWriterConfigs = Random.shuffle(successfulDelegateSet.toSet.union(mockFailingDelegateSet.toSet))
+        val storageManager = new StorageManager(repo, randomSuccessAndFailingWriterConfigs.toSet)
+        val newConfig = AppConfig(config, appConfig.rmq, appConfig.sc)
         val qms2 = new QuarterMasterService(newConfig, initMapping, MockitoSugar.mock[MessageSender], storageManager)
         val callAccepted = qms2.storeAsset(data, label)
+w{
         val f = callAccepted.flatMap(_._2)
-        if (!delegateConfiguredForLabel(label, randomSuccessAndFailingWriterConfigs)) {
-          whenReady(f.failed) {
-            e => e shouldBe a [NotImplementedException]
-          }
-        }else
-        if (data.size < 1) {
-          whenReady(f.failed) {
-            e => e shouldBe a [IllegalArgumentException]
-          }
-        } else
-        whenReady(f)((s) => {
+        whenReady(f)((s) =>  {
           val allDelegates = randomSuccessAndFailingWriterConfigs.map(_.delegate).toSet
           val matchingDelegates = storageManager.label2Delegates(label)
-          val failingNonMatching = allDelegates.diff(matchingDelegates)
           val assetToken = callAccepted.futureValue._1
-          matchingDelegates.map(verify(_, times(1)).write(eql(assetToken), aryEq(data)))
-          failingNonMatching.map(verify(_, never).write(any[AssetToken], any[Array[Byte]]))
-          matchingDelegates.map(verify(_, times(1)).cleanUp(eql(assetToken)))
-          failingNonMatching.map(verify(_, never).cleanUp(any[AssetToken]))
-          true
-        })
+          val matchingSuccessfulDaos = successfulDelegateSet.filter(_.labels.contains(label)).map(_.delegate.dao)
+          val matchingFailingDaos = mockFailingDelegateSet.filter(_.labels.contains(label)).map(_.delegate.dao)
+          matchingSuccessfulDaos.map(verify(_, times(1)).write(eql(assetToken), aryEq(data)))
+          matchingSuccessfulDaos.map(verify(_, never).cleanUp(any[AssetToken]))
+          matchingFailingDaos.map(verify(_, times(1)).write(eql(assetToken), aryEq(data)))
+          matchingFailingDaos.map(verify(_, times(1)).cleanUp(any[AssetToken]))
+          w.dismiss()
+        })}
+        w.await()
       }
     }
   }
-
   it should "connect to the correct mappings" in  {
-    val router = new QuarterMasterRoutes(qms, system)
+    val mockSender = MockitoSugar.mock[MessageSender]
+    val mockStorageManager  = MockitoSugar.mock[StorageManager]
+    val qms = new QuarterMasterService(appConfig, initMapping, mockSender, mockStorageManager)
+    val router = new QuarterMasterRoutes(qms, createActorSystem())
     def routes = router.routes
     Get("/mappings") ~> routes ~> check {
       assert(status == OK )
@@ -262,45 +251,51 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures {
   }
 
   it should "connect reload the mapping path" in  {
-    val router = new QuarterMasterRoutes(qms,system)
+    val mockSender = MockitoSugar.mock[MessageSender]
+    val mockStorageManager  = MockitoSugar.mock[StorageManager]
+    val qms = new QuarterMasterService(appConfig, initMapping, mockSender, mockStorageManager)
+    val router = new QuarterMasterRoutes(qms,createActorSystem())
     def routes = router.routes
     Put("/mappings/refresh") ~> routes ~> check {
       assert(status == OK )
       mediaType.toString == "application/vnd.blinkbox.books.v2+json"
     }
   }
-
   it should "save an artifact" in {
-    val label = 2
-    forAll(Gen.listOf(mockSuccessfulDelegateConfigGenWithLabel(label)), Gen.nonEmptyListOf(arbitrary[Byte]) ) {
+    val label = Label("2")
+    forAll(Gen.nonEmptyListOf(mockSuccessfulDelegateConfigGenWithLabel(label)), Gen.nonEmptyListOf(arbitrary[Byte]) ) {
       (mockDelegateConfigList, datalist) => {
+          val w = new Waiter
           val mockDelegateConfigSet = mockDelegateConfigList.toSet
           val data = datalist.toArray
           val repo = new InMemoryRepo
           val storageManager = new StorageManager(repo,mockDelegateConfigSet)
-          val newConfig = AppConfig(config, appConfig.rmq, appConfig.hsc, appConfig.sc)
+          val newConfig = AppConfig(config, appConfig.rmq,  appConfig.sc)
           val mockSender = MockitoSugar.mock[MessageSender]
           val service = new QuarterMasterService(newConfig, initMapping, mockSender, storageManager)
-          val router = new QuarterMasterRoutes(service,system)
+          val router = new QuarterMasterRoutes(service,createActorSystem())
           def routes = router.routes
           val compressible  = true
           val binary = true
+          import scala.concurrent.duration._
+          val testtimeout = 3.seconds
           val contentType = ContentType(MediaType.custom("application", "epub+zip", compressible, binary, Seq[String]("epub"), Map.empty))
           Post("/resources",
             MultipartFormData(
               Map(
-                "label" -> BodyPart(HttpEntity(ContentTypes.`text/plain`, label.toString)),
+                "label" -> BodyPart(HttpEntity(ContentTypes.`text/plain`, label.label)),
                 "data" -> BodyPart(HttpEntity(contentType, HttpData(data)))
               ))
           ) ~> routes ~> check {
-            assert(status == Accepted)
-            val matchingDelegates:Set[StorageDelegate] = mockDelegateConfigSet.filter( _.labels.contains(label)).map(_.delegate)
-            val nonMatchingDelegates = mockDelegateConfigSet.filter( !_.labels.contains(label)).map(_.delegate)
-            Thread.sleep(40)
-              matchingDelegates.map(verify(_, atLeastOnce).write(any[AssetToken], aryEq(data)))
-              nonMatchingDelegates.map(verify(_,never).write(any[AssetToken], any[Array[Byte]]))
+            w{
+              assert(status == Accepted)
+              val matchingDelegates: Set[StorageDelegate] = mockDelegateConfigSet.filter(_.labels.contains(label)).map(_.delegate)
+              val nonMatchingDelegates = mockDelegateConfigSet.filter(!_.labels.contains(label)).map(_.delegate)
+              matchingDelegates.map(verify(_, times(1)).write(any[AssetToken], aryEq(data)))
+              nonMatchingDelegates.map(verify(_, never).write(any[AssetToken], any[Array[Byte]]))
               mediaType.toString == "application/vnd.blinkbox.books.v2+json"
-          }
+            }}
+            w.dismiss()
         }
       }
     }

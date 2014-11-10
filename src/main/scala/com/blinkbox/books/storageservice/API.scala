@@ -7,13 +7,14 @@ import akka.actor.{ActorRefFactory, ActorSystem, Props}
 import akka.util.Timeout
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.logging.Loggers
-import com.blinkbox.books.spray.{HttpServer, v2, Directives => CommonDirectives}
+import com.blinkbox.books.spray.{Directives => CommonDirectives, HealthCheckHttpService, HttpServer, v2}
 import com.typesafe.scalalogging.slf4j.StrictLogging
 import org.json4s.MappingException
 import org.json4s.jackson.Serialization
 import org.slf4j.LoggerFactory
 import spray.can.Http
 import spray.http.StatusCodes._
+import spray.http.Uri.Path
 import spray.http._
 import spray.httpx.unmarshalling._
 import spray.routing._
@@ -51,11 +52,11 @@ with CommonDirectives with BasicUnmarshallers with v2.JsonSupport {
       post {
         entity(as[MultipartFormData]) { (form) =>
           val dataRight = new MultipartFormField("data", form.get("data")).as[Array[Byte]]
-          val labelRight = new MultipartFormField("label", form.get("label")).as[Int]
+          val labelRight = new MultipartFormField("label", form.get("label")).as[String]
           val result = for {
             data <- dataRight.right
             label <- labelRight.right
-          } yield (qms.storeAsset(data, label).map[AssetToken](_._1))
+          } yield (qms.storeAsset(data, Label(label)).map[AssetToken](_._1))
           result match {
             case Right(result) => complete(StatusCodes.Accepted, result)
             case _ => complete(StatusCodes.InternalServerError)
@@ -94,18 +95,26 @@ with CommonDirectives with BasicUnmarshallers with v2.JsonSupport {
       uncacheable(BadRequest, "code: UnknownLabel")
   }
 
+  val hsc = HealthService(arf)
   val log = LoggerFactory.getLogger(classOf[QuarterMasterRoutes])
   val routes = monitor(log) {
     handleExceptions(exceptionHandler) {
       neverCache {
         rootPath(appConfig.root) {
-          mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ appConfig.hsc.healthService.routes ~ storeAssetRoute
+          mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ hsc.healthService.routes ~ storeAssetRoute
         }
       }
     }
   }
 }
 
+case class HealthService(arf: ActorRefFactory) {
+  val healthService =
+    new HealthCheckHttpService {
+      override implicit def actorRefFactory = arf
+      override val basePath = Path("/")
+    }
+}
 class WebService(config: AppConfig, qms: QuarterMasterService) extends HttpServiceActor {
   implicit val executionContext = actorRefFactory.dispatcher
   val routes = new QuarterMasterRoutes(qms, actorRefFactory)
