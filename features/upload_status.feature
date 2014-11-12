@@ -24,4 +24,4 @@ Feature: Return information about mapped files' storage status
     And a file has not been uploaded to either
     When I request the storage status for that file's mapped URI
     Then the response is a storage status document
-    And there are two items in "Providers: Ready"
+    And there are no items in "Providers: Ready"
