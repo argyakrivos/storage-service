@@ -206,7 +206,6 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
     delegateType = DelegateType("mockingDelegate" +System.nanoTime)
   } yield new DelegateConfig(getFailingDelegate(delegateType, new IllegalStateException), labels.toSet)
 
-
   "the quarterMaster" should "clean up failed assets" in {
     val label = Label("2:2")
     val labeledFailingDelegateConfigGen = for {

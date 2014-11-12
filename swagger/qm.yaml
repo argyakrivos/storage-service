@@ -6,7 +6,7 @@ info:
   version: 2.0.0
 basePath: /
 produces:
-  - application/json
+  -  application/vnd.blinkbox.books.ingestion.storageservice.v2+json
 paths:
   /mappings:
     get:
@@ -39,7 +39,7 @@ paths:
         404:
           description: The specified resource cannot be found on any of the associated providers.
           examples:
-            application/vnd.blinkbox.books.ingestion.storageservice.v2+json:
+            application/vnd.blinkbox.books.ingestion.storageservice.v2+json: |
               }: |
               {
                 "code": "NotFound",
@@ -73,21 +73,21 @@ paths:
         400:
           description: Missing or invalid parameters
           examples:
-            application/json: |
+            application/vnd.blinkbox.books.ingestion.storageservice.v2+json: |
               {
                 "code": "InvalidParameters"
               }
         501:
           description: Unknown label (not sure where to upload). Please configure the label first.
           examples:
-            application/json: |
+            application/vnd.blinkbox.books.ingestion.storageservice.v2+json: |
               {
                 "code": "UnknownLabel"
               }
         503:
           description: Enough of the providers are unavailable to cause concern. Uploads are currently prevented.
           examples:
-            application/json: |
+            application/vnd.blinkbox.books.ingestion.storageservice.v2+json: |
               {
                 "code": "UploadsUnavailable"
               }

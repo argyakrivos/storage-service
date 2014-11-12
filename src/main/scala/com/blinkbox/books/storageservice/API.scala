@@ -1,7 +1,5 @@
 package com.blinkbox.books.storageservice
-
 import java.lang.reflect.InvocationTargetException
-
 import akka.actor.{ActorRefFactory, ActorSystem, Props}
 import akka.util.Timeout
 import com.blinkbox.books.config.Configuration

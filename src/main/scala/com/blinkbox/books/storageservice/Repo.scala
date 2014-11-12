@@ -19,8 +19,6 @@ object Status extends Ordering[Status] {
 
   override def compare(a: Status, b: Status): Int = a.eta.clicks compare b.eta.clicks
 
-
-
   def earlierStatus(latestProgress: Progress, earliestStatus: Status): Status =
     min(earliestStatus, Status(latestProgress))
 
