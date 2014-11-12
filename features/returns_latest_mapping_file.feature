@@ -8,7 +8,7 @@ Feature: Get the mapping file needed to retrieve a resource from a mapped URL
   Scenario: Retrieve a mapping file (old)
     Given the QuarterMaster is up
     When I request the mapping file that is old
-    Then QuarterMaster returns a mapping file with a last update of <date>
+    Then QuarterMaster returns a mapping file with a last update of a previous date
     And the response Json has the following attributes:
       | attribute | type   | description                                                                                        |
       | extractor | String | some group capturing regex                                                                         |

@@ -10,8 +10,8 @@ import com.typesafe.config.Config
 import spray.http.Uri.Path
 
 import scala.collection.JavaConverters._
-
-
+import scala.collection.immutable.Set
+import scala.collection.immutable.Set
 
 case class BlinkboxRabbitMqConfig(c: Config) {
   val senderString = c.getConfig("service.qm.sender")

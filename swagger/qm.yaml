@@ -37,9 +37,10 @@ paths:
           schema:
             $ref: ProviderStatusResponse
         404:
-          description: The specified resource cannot be found on any of the assoicated providers.
+          description: The specified resource cannot be found on any of the associated providers.
           examples:
-            application/json: |
+            application/vnd.blinkbox.books.ingestion.storageservice.v2+json:
+              }: |
               {
                 "code": "NotFound",
                 "providers": ["azure-alpha", "gluster"]
@@ -49,7 +50,8 @@ paths:
     post:
       summary: Upload a new resource
       description: Upload a resource to the storage service.
-      consumes: multipart/form-data
+      consumes:
+      - multipart/form-data
       parameters:
         - name: label
           in: formData

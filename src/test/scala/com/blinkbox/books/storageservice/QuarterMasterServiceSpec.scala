@@ -4,6 +4,8 @@ import akka.testkit.{TestKit, EventFilter, ImplicitSender}
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
 import com.blinkbox.books.test.MatcherSugar.eql
+import com.fasterxml.jackson.core.{JsonProcessingException, JsonParseException}
+import com.fasterxml.jackson.databind.JsonMappingException
 import org.json4s.JsonDSL._
 import org.json4s.jackson.JsonMethods._
 import org.json4s.{FieldSerializer, JValue}
@@ -32,11 +34,14 @@ import scala.concurrent.Future
 import scala.util.Random
 import org.scalacheck.Shrink
 
+import scala.util.control.NonFatal
+
 @RunWith(classOf[JUnitRunner])
 class QuarterMasterSpecification extends Configuration with FlatSpecLike with ScalatestRouteTest
 with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.testkit.TestKitBase with AsyncAssertions {
   val minlabel = 0
   val maxlabel = 3
+  val initMapping: Mapping = Mapping("", List())
 
   val labelGen = for {
     labelNum:Int <- Gen.chooseNum(minlabel, maxlabel)
@@ -62,15 +67,6 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
     extractor <- arbitrary[String]
   } yield Mapping(extractor, templateList)
 
-  def successfulWriteAnswer(delegateType: DelegateType): Answer[Future[(DelegateType, Status)]] = new Answer[Future[(DelegateType, Status)]] {
-    override def answer(invocation: InvocationOnMock): Future[(DelegateType, Status)] = {
-      invocation.getArguments.head match {
-        case assetTokenArg: AssetToken => Future {
-          (delegateType, new Status(DateTime.now, true))
-        }
-      }
-    }
-  }
   val mockSuccessfulDelegateConfigGen = for {
     labels <- Gen.listOf(labelGen)
     delegateType = DelegateType("mockingDelegate" +System.nanoTime)
@@ -81,7 +77,6 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
   } yield successfulDelegateConfigs.toSet
 
   implicit val formats = DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
-  val initMapping: Mapping = Mapping("", List())
 
   val mappingJsonStr = """{"extractor":"^.*/(?P<filename>$.*)\\.(?P<extenstion>.{2,3})\\?",
       "templates":[{
@@ -98,6 +93,16 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
     override def answer(invocation: InvocationOnMock): Future[(DelegateType, Status)] = Future.failed(e)
   }
 
+  def successfulWriteAnswer(delegateType: DelegateType): Answer[Future[(DelegateType, Status)]] = new Answer[Future[(DelegateType, Status)]] {
+    override def answer(invocation: InvocationOnMock): Future[(DelegateType, Status)] = {
+      invocation.getArguments.head match {
+        case assetTokenArg: AssetDigest => Future {
+          (delegateType, Status.finished)
+        }
+      }
+    }
+  }
+
   def getSuccessfulDelegate(delegateType: DelegateType, answer: Answer[Future[(DelegateType, Status)]]):StorageDelegate = {
     val mockStorageDao = MockitoSugar.mock[StorageDao]
     val mockRepo = MockitoSugar.mock[StorageWorkerRepo]
@@ -105,7 +110,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
     when(mockRepo.getStatus(any[JobId])).thenReturn(Future.successful(Status.notFound))
     when(mockRepo.updateProgress(any[JobId],any[Long], any[DateTime], any[Long])).thenReturn(Future.successful(()))
     when(mockRepo.removeProgress(any[JobId])).thenReturn(Future.successful(()))
-    when(mockStorageDao.write(any[AssetToken], any[Array[Byte]])).thenAnswer(new Answer[Future[Unit]] {
+    when(mockStorageDao.write(any[AssetDigest], any[Array[Byte]])).thenAnswer(new Answer[Future[Unit]] {
       override def answer(invocation: InvocationOnMock): Future[Unit] = {Future.successful(())}
     })
     delegate
@@ -118,10 +123,10 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
     when(mockRepo.getStatus(any[JobId])).thenReturn(Future.successful(Status.notFound))
     when(mockRepo.updateProgress(any[JobId],any[Long], any[DateTime], any[Long])).thenReturn(Future.successful(()))
     when(mockRepo.removeProgress(any[JobId])).thenReturn(Future.successful(()))
-    when(mockStorageDao.cleanUp(any[AssetToken])).thenAnswer(new Answer[Future[Unit]] {
+    when(mockStorageDao.cleanUp(any[AssetDigest])).thenAnswer(new Answer[Future[Unit]] {
       override def answer(invocation: InvocationOnMock): Future[Unit] = {Future.successful(())}
     })
-    when(mockStorageDao.write(any[AssetToken], any[Array[Byte]])).thenAnswer(new Answer[Future[Unit]] {
+    when(mockStorageDao.write(any[AssetDigest], any[Array[Byte]])).thenAnswer(new Answer[Future[Unit]] {
       override def answer(invocation: InvocationOnMock): Future[Unit] = { Future.failed(e)}
     })
     delegate
@@ -151,14 +156,16 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
       val mockSender = MockitoSugar.mock[MessageSender]
       val mockStorageManager  = MockitoSugar.mock[StorageManager]
       val qms = new QuarterMasterService(appConfig, initMapping, mockSender, mockStorageManager)
-      qms.mapping = oldMapping
+      qms.mapping.set(oldMapping)
       val expected = MappingHelper.toJson(oldMapping)
       val f = qms.updateAndBroadcastMapping(json)
-      whenReady(f)(_ shouldEqual expected)
+      whenReady(f.failed) {
+        e => e shouldBe a [JsonProcessingException]
+      }
     }
   }
 
-  "The quarterMasterService" should "not  load bogus data " in {
+  "The quarterMasterService" should "not load bogus data " in {
     forAll(mappingGen, alphaStr) { (oldMapping, bogusMapping) =>
       MappingHelper.loader = new MappingLoader {
         override def load(path: String): String = bogusMapping
@@ -167,10 +174,12 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
       val mockSender = MockitoSugar.mock[MessageSender]
       val mockStorageManager  = MockitoSugar.mock[StorageManager]
       val qms = new QuarterMasterService(appConfig, initMapping, mockSender, mockStorageManager)
-      qms.mapping = oldMapping
+      qms.mapping.set(oldMapping)
       val expected =MappingHelper.toJson(oldMapping)
       val f = qms.loadMapping
-      whenReady[String, Unit](f)((s) => s shouldEqual expected)
+      whenReady(f.failed) {
+        e => e shouldBe a [JsonProcessingException]
+      }
     }
   }
 
@@ -184,7 +193,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
       val mockSender = MockitoSugar.mock[MessageSender]
       val mockStorageManager  = MockitoSugar.mock[StorageManager]
       val qms = new QuarterMasterService(appConfig, initMapping, mockSender, mockStorageManager)
-      qms.mapping = oldMapping
+      qms.mapping.set(oldMapping)
       val f = qms.loadMapping
       whenReady(f)((s) => {
         s shouldEqual loadStr
@@ -199,7 +208,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
 
 
   "the quarterMaster" should "clean up failed assets" in {
-    val label = Label("2")
+    val label = Label("2:2")
     val labeledFailingDelegateConfigGen = for {
       labels <- Gen.listOf(labelGen)
       delegateType = DelegateType("mockingDelegate" + System.nanoTime)
@@ -220,24 +229,23 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
         val newConfig = AppConfig(config, appConfig.rmq, appConfig.sc)
         val qms2 = new QuarterMasterService(newConfig, initMapping, MockitoSugar.mock[MessageSender], storageManager)
         val callAccepted = qms2.storeAsset(data, label)
-w{
+        w{
         val f = callAccepted.flatMap(_._2)
         whenReady(f)((s) =>  {
-          val allDelegates = randomSuccessAndFailingWriterConfigs.map(_.delegate).toSet
-          val matchingDelegates = storageManager.label2Delegates(label)
           val assetToken = callAccepted.futureValue._1
           val matchingSuccessfulDaos = successfulDelegateSet.filter(_.labels.contains(label)).map(_.delegate.dao)
           val matchingFailingDaos = mockFailingDelegateSet.filter(_.labels.contains(label)).map(_.delegate.dao)
           matchingSuccessfulDaos.map(verify(_, times(1)).write(eql(assetToken), aryEq(data)))
-          matchingSuccessfulDaos.map(verify(_, never).cleanUp(any[AssetToken]))
+          matchingSuccessfulDaos.map(verify(_, never).cleanUp(any[AssetDigest]))
           matchingFailingDaos.map(verify(_, times(1)).write(eql(assetToken), aryEq(data)))
-          matchingFailingDaos.map(verify(_, times(1)).cleanUp(any[AssetToken]))
+          matchingFailingDaos.map(verify(_, times(1)).cleanUp(any[AssetDigest]))
           w.dismiss()
         })}
         w.await()
       }
     }
   }
+
   it should "connect to the correct mappings" in  {
     val mockSender = MockitoSugar.mock[MessageSender]
     val mockStorageManager  = MockitoSugar.mock[StorageManager]
@@ -261,6 +269,7 @@ w{
       mediaType.toString == "application/vnd.blinkbox.books.v2+json"
     }
   }
+
   it should "save an artifact" in {
     val label = Label("2")
     forAll(Gen.nonEmptyListOf(mockSuccessfulDelegateConfigGenWithLabel(label)), Gen.nonEmptyListOf(arbitrary[Byte]) ) {
@@ -270,7 +279,7 @@ w{
           val data = datalist.toArray
           val repo = new InMemoryRepo
           val storageManager = new StorageManager(repo,mockDelegateConfigSet)
-          val newConfig = AppConfig(config, appConfig.rmq,  appConfig.sc)
+          val newConfig = AppConfig(config, appConfig.rmq, appConfig.sc)
           val mockSender = MockitoSugar.mock[MessageSender]
           val service = new QuarterMasterService(newConfig, initMapping, mockSender, storageManager)
           val router = new QuarterMasterRoutes(service,createActorSystem())
@@ -291,8 +300,8 @@ w{
               assert(status == Accepted)
               val matchingDelegates: Set[StorageDelegate] = mockDelegateConfigSet.filter(_.labels.contains(label)).map(_.delegate)
               val nonMatchingDelegates = mockDelegateConfigSet.filter(!_.labels.contains(label)).map(_.delegate)
-              matchingDelegates.map(verify(_, times(1)).write(any[AssetToken], aryEq(data)))
-              nonMatchingDelegates.map(verify(_, never).write(any[AssetToken], any[Array[Byte]]))
+              matchingDelegates.map(verify(_, times(1)).write(any[AssetDigest], aryEq(data)))
+              nonMatchingDelegates.map(verify(_, never).write(any[AssetDigest], any[Array[Byte]]))
               mediaType.toString == "application/vnd.blinkbox.books.v2+json"
             }}
             w.dismiss()
