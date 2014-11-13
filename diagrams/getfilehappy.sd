@@ -1,0 +1,19 @@
+e:Epub[a] "EPub"
+qmstor:QuarterMaster[p] "QuarterMaster(Storage Service)"
+cs:StorageHelper:CompletionService [a] 
+sc:<CachedState> []  "StateCache"
+s:List<Storage> [] "Storage Containers"
+#it is assumed that the token encompasses all the knowledge of which storage providers the resource will be stored on
+
+e:s.get {url}
+e:qmstor.404?get /resources/status/{token}
+qmstor:sc.get(/resources/status/{token})
+sc:qmstor.not found = complete
+
+qmstor:cs.404?determine state frm pvdr
+cs:s.get(resources/status/{token})
+#quartermaster doesnt auto restart services, its down to watcher to restart services that havent started/completed in time
+cs:qmstor.
+qmstor:e.status=no providers successful?fail
+
+
