@@ -1,7 +1,6 @@
 package com.blinkbox.books.storageservice
 
 import java.io.FileWriter
-import java.util.concurrent.Executors
 
 import akka.actor.{ActorRef, ActorRefFactory, Props}
 import akka.pattern.ask
@@ -19,10 +18,9 @@ import spray.http.DateTime
 import spray.util.NotImplementedException
 
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.Future
 import scala.io.Source
 import scala.util.control.NonFatal
-import java.util.concurrent.atomic.AtomicReference
 
 case class UserId(id: String)
 case class Label(label:String){
@@ -127,7 +125,7 @@ case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, mess
     val storeAndBroadcastFuture = for {
       mapping <- Future(MappingHelper.fromJsonStr(mappingStr))
       _ = set(mapping)
-      _ <- MappingHelper.store(appConfig.mappingpath, mapping)
+      _ <- MappingHelper.store(appConfig.mappingPath, mapping)
       _ <- MappingHelper.broadcastUpdate(messageSender.qSender, appConfig.eventHeader, mapping)
     } yield MappingHelper.toJson(mapping)
     storeAndBroadcastFuture.onFailure {
@@ -142,7 +140,7 @@ case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, mess
   def loadMapping(): Future[String] = {
     val oldMapping = this.mapping.get
     val loadAndSetFuture = for {
-      newMapping <- MappingHelper.load(appConfig.mappingpath)
+      newMapping <- MappingHelper.load(appConfig.mappingPath)
       _ = set(newMapping)
     } yield MappingHelper.toJson(newMapping)
     loadAndSetFuture.onFailure{
