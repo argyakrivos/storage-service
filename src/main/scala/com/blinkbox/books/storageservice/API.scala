@@ -89,7 +89,7 @@ with CommonDirectives with BasicUnmarshallers with v2.JsonSupport{
 
   private def exceptionHandler(implicit log: LoggingContext) = ExceptionHandler {
     case e: NotImplementedException => log.error(e, "Unhandled error")
-      uncacheable(NotImplemented, "code: UnknownLabel")
+      uncacheable(BadRequest, "code: Bad Data")
     case e: IllegalArgumentException => log.error(e, "Unhandled error")
       uncacheable(BadRequest, "code: UnknownLabel")
   }
