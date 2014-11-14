@@ -1,4 +1,10 @@
 # Change log
+## 0.1.2 ([#6](https://git.mobcastdev.com/Quartermaster/storage-service/pull/6) 2014-11-14 16:04:22)
+
+Patch: CP-1710: renamed Delegate references to Provider to keep language...
+
+Patch: CP-1710: renamed Delegate references to Provider to keep language consistent
+
 ## 0.1.1 ([#5](https://git.mobcastdev.com/Quartermaster/storage-service/pull/5) 2014-11-14 11:20:12)
 
 CP-1710: reconfigured boot service
