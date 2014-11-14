@@ -38,10 +38,10 @@ object Status extends Ordering[Status] {
     }
   }
 
-  def getStatus(progress: List[Progress], name: DelegateType): Status = progress.foldRight[Status](failed)(earlierStatus)
+  def getStatus(progress: List[Progress], name: ProviderType): Status = progress.foldRight[Status](failed)(earlierStatus)
 }
 
-trait StorageWorkerRepo {
+trait StorageProviderRepo {
   def storeProgress(jobId: JobId, progress: Progress): Future[Unit]
 
   def getProgress(jobId: JobId): Future[Option[Progress]]
@@ -53,7 +53,7 @@ trait StorageWorkerRepo {
   def updateProgress(jobId: JobId, size: Long, started: DateTime, bytesWritten: Long): Future[Unit]
 }
 
-class InMemoryRepo extends StorageWorkerRepo {
+class InMemoryRepo extends StorageProviderRepo {
   val repo = new TrieMap[JobId, Progress]
 
   override def storeProgress(jobId: JobId, progress: Progress) =

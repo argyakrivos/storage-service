@@ -16,7 +16,7 @@ case class BlinkboxRabbitMqConfig(c: Config) {
   val serviceConfig = c.getConfig("service.qm.mq")
 }
 
-case class DelegateConfig(delegate: StorageDelegate, labels: Set[Label])
+case class ProviderConfig(provider: StorageProvider, labels: Set[Label])
 
 case class AppConfig(c: Config, rmq: BlinkboxRabbitMqConfig,  sc: StorageConfig) {
   val root = Path(c.getString("service.qm.api.public.root"))
@@ -25,7 +25,7 @@ case class AppConfig(c: Config, rmq: BlinkboxRabbitMqConfig,  sc: StorageConfig)
   val mappingEventHandler = EventHeader(c.getString("service.qm.mappingEventHandler"))
   val mappingPath = c.getString("service.qm.mappingPath")
   val eventHeader: EventHeader = EventHeader(c.getString("service.qm.sender.eventHeader"))
-  val minStorageDelegates = c.getInt("service.qm.storage.minStorageDelegates")
+  val minStorageProviders = c.getInt("service.qm.storage.minStorageProviders")
 }
 
 object AppConfig {
