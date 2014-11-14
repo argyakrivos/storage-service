@@ -67,14 +67,14 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
     extractor <- arbitrary[String]
   } yield Mapping(extractor, templateList)
 
-  val mockSuccessfulDelegateConfigGen = for {
+  val mockSuccessfulProviderConfigGen = for {
     labels <- Gen.listOf(labelGen)
-    delegateType = DelegateType("mockingDelegate" +System.nanoTime)
-  } yield new DelegateConfig(getSuccessfulDelegate(delegateType, successfulWriteAnswer(delegateType)), labels.toSet)
+    providerType = ProviderType("mockingProvider" +System.nanoTime)
+  } yield new ProviderConfig(getSuccessfulProvider(providerType, successfulWriteAnswer(providerType)), labels.toSet)
 
-  val mockSuccessfulDelegateConfigSetGen = for {
-    successfulDelegateConfigs <- Gen.listOf(mockSuccessfulDelegateConfigGen)
-  } yield successfulDelegateConfigs.toSet
+  val mockSuccessfulProviderConfigSetGen = for {
+    successfulProviderConfigs <- Gen.listOf(mockSuccessfulProviderConfigGen)
+  } yield successfulProviderConfigs.toSet
 
   implicit val formats = DefaultFormats + FieldSerializer[Mapping]() + FieldSerializer[UrlTemplate]()
 
@@ -89,37 +89,37 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
     override def write(path: String, json: String): Unit = ()
   }
 
-  def failingWriteAnswer(e: Throwable): Answer[Future[(DelegateType, Status)]] = new Answer[Future[(DelegateType, Status)]] {
-    override def answer(invocation: InvocationOnMock): Future[(DelegateType, Status)] = Future.failed(e)
+  def failingWriteAnswer(e: Throwable): Answer[Future[(ProviderType, Status)]] = new Answer[Future[(ProviderType, Status)]] {
+    override def answer(invocation: InvocationOnMock): Future[(ProviderType, Status)] = Future.failed(e)
   }
 
-  def successfulWriteAnswer(delegateType: DelegateType): Answer[Future[(DelegateType, Status)]] = new Answer[Future[(DelegateType, Status)]] {
-    override def answer(invocation: InvocationOnMock): Future[(DelegateType, Status)] = {
+  def successfulWriteAnswer(providerType: ProviderType): Answer[Future[(ProviderType, Status)]] = new Answer[Future[(ProviderType, Status)]] {
+    override def answer(invocation: InvocationOnMock): Future[(ProviderType, Status)] = {
       invocation.getArguments.head match {
         case assetTokenArg: AssetDigest => Future {
-          (delegateType, Status.finished)
+          (providerType, Status.finished)
         }
       }
     }
   }
 
-  def getSuccessfulDelegate(delegateType: DelegateType, answer: Answer[Future[(DelegateType, Status)]]):StorageDelegate = {
+  def getSuccessfulProvider(providerType: ProviderType, answer: Answer[Future[(ProviderType, Status)]]):StorageProvider = {
     val mockStorageDao = MockitoSugar.mock[StorageDao]
-    val mockRepo = MockitoSugar.mock[StorageWorkerRepo]
-    val delegate =new StorageDelegate(mockRepo, delegateType, mockStorageDao)
+    val mockRepo = MockitoSugar.mock[StorageProviderRepo]
+    val provider =new StorageProvider(mockRepo, providerType, mockStorageDao)
     when(mockRepo.getStatus(any[JobId])).thenReturn(Future.successful(Status.notFound))
     when(mockRepo.updateProgress(any[JobId],any[Long], any[DateTime], any[Long])).thenReturn(Future.successful(()))
     when(mockRepo.removeProgress(any[JobId])).thenReturn(Future.successful(()))
     when(mockStorageDao.write(any[AssetDigest], any[Array[Byte]])).thenAnswer(new Answer[Future[Unit]] {
       override def answer(invocation: InvocationOnMock): Future[Unit] = {Future.successful(())}
     })
-    delegate
+    provider
   }
 
-  def getFailingDelegate(delegateType: DelegateType, e: Exception) = {
+  def getFailingProvider(providerType: ProviderType, e: Exception) = {
     val mockStorageDao = MockitoSugar.mock[StorageDao]
-    val mockRepo = MockitoSugar.mock[StorageWorkerRepo]
-    val delegate =new StorageDelegate(mockRepo, delegateType, mockStorageDao)
+    val mockRepo = MockitoSugar.mock[StorageProviderRepo]
+    val provider =new StorageProvider(mockRepo, providerType, mockStorageDao)
     when(mockRepo.getStatus(any[JobId])).thenReturn(Future.successful(Status.notFound))
     when(mockRepo.updateProgress(any[JobId],any[Long], any[DateTime], any[Long])).thenReturn(Future.successful(()))
     when(mockRepo.removeProgress(any[JobId])).thenReturn(Future.successful(()))
@@ -129,12 +129,12 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
     when(mockStorageDao.write(any[AssetDigest], any[Array[Byte]])).thenAnswer(new Answer[Future[Unit]] {
       override def answer(invocation: InvocationOnMock): Future[Unit] = { Future.failed(e)}
     })
-    delegate
+    provider
   }
 
-  def mockSuccessfulDelegateConfigGenWithLabel(label: Label) = {
-   val delegateType = DelegateType("mockingDelegate" +System.nanoTime)
-   new DelegateConfig(getSuccessfulDelegate(delegateType, successfulWriteAnswer(delegateType)), Set(label))
+  def mockSuccessfulProviderConfigGenWithLabel(label: Label) = {
+   val providerType = ProviderType("mockingProvider" +System.nanoTime)
+   new ProviderConfig(getSuccessfulProvider(providerType, successfulWriteAnswer(providerType)), Set(label))
   }
 
   "The quarterMasterService" should "update the mapping file " in {
@@ -201,29 +201,29 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
     }
   }
 
-  val  mockFailingDelegateConfigGen  = for {
+  val  mockFailingProviderConfigGen  = for {
     labels <- Gen.listOf(labelGen)
-    delegateType = DelegateType("mockingDelegate" +System.nanoTime)
-  } yield new DelegateConfig(getFailingDelegate(delegateType, new IllegalStateException), labels.toSet)
+    providerType = ProviderType("mockingProvider" +System.nanoTime)
+  } yield new ProviderConfig(getFailingProvider(providerType, new IllegalStateException), labels.toSet)
 
   "the quarterMaster" should "clean up failed assets" in {
     val label = Label("2:2")
-    val labeledFailingDelegateConfigGen = for {
+    val labeledFailingProviderConfigGen = for {
       labels <- Gen.listOf(labelGen)
-      delegateType = DelegateType("mockingDelegate" + System.nanoTime)
-    } yield new DelegateConfig(getFailingDelegate(delegateType, new IllegalStateException), labels.toSet.+(label))
-    forAll(Gen.listOf(mockSuccessfulDelegateConfigGen), Gen.nonEmptyListOf(labeledFailingDelegateConfigGen),
+      providerType = ProviderType("mockingProvider" + System.nanoTime)
+    } yield new ProviderConfig(getFailingProvider(providerType, new IllegalStateException), labels.toSet.+(label))
+    forAll(Gen.listOf(mockSuccessfulProviderConfigGen), Gen.nonEmptyListOf(labeledFailingProviderConfigGen),
       Gen.nonEmptyListOf(arbitrary[Byte])
     ) {
-      (successfulDelegateSet, mockFailingDelegateSet, dataList) => {
-        mockFailingDelegateSet
+      (successfulProviderSet, mockFailingProviderSet, dataList) => {
+        mockFailingProviderSet
         val w = new Waiter
         val data = dataList.toArray
-        val repo = MockitoSugar.mock[StorageWorkerRepo]
+        val repo = MockitoSugar.mock[StorageProviderRepo]
         when(repo.updateProgress(any[JobId], any[Long], any[DateTime], any[Long])).thenReturn(Future.successful(()))
         when(repo.removeProgress(any[JobId])).thenReturn(Future.successful(()))
         when(repo.getStatus(any[JobId])).thenReturn(Future(Status.notFound))
-        val randomSuccessAndFailingWriterConfigs = Random.shuffle(successfulDelegateSet.toSet.union(mockFailingDelegateSet.toSet))
+        val randomSuccessAndFailingWriterConfigs = Random.shuffle(successfulProviderSet.toSet.union(mockFailingProviderSet.toSet))
         val storageManager = new StorageManager(repo, randomSuccessAndFailingWriterConfigs.toSet)
         val newConfig = AppConfig(config, appConfig.rmq, appConfig.sc)
         val qms2 = new QuarterMasterService(newConfig, initMapping, MockitoSugar.mock[MessageSender], storageManager)
@@ -232,8 +232,8 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
         val f = callAccepted.flatMap(_._2)
         whenReady(f)((s) =>  {
           val assetToken = callAccepted.futureValue._1
-          val matchingSuccessfulDaos = successfulDelegateSet.filter(_.labels.contains(label)).map(_.delegate.dao)
-          val matchingFailingDaos = mockFailingDelegateSet.filter(_.labels.contains(label)).map(_.delegate.dao)
+          val matchingSuccessfulDaos = successfulProviderSet.filter(_.labels.contains(label)).map(_.provider.dao)
+          val matchingFailingDaos = mockFailingProviderSet.filter(_.labels.contains(label)).map(_.provider.dao)
           matchingSuccessfulDaos.map(verify(_, times(1)).write(eql(assetToken), aryEq(data)))
           matchingSuccessfulDaos.map(verify(_, never).cleanUp(any[AssetDigest]))
           matchingFailingDaos.map(verify(_, times(1)).write(eql(assetToken), aryEq(data)))
@@ -271,13 +271,13 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
 
   it should "save an artifact" in {
     val label = Label("2")
-    forAll(Gen.nonEmptyListOf(mockSuccessfulDelegateConfigGenWithLabel(label)), Gen.nonEmptyListOf(arbitrary[Byte]) ) {
-      (mockDelegateConfigList, datalist) => {
+    forAll(Gen.nonEmptyListOf(mockSuccessfulProviderConfigGenWithLabel(label)), Gen.nonEmptyListOf(arbitrary[Byte]) ) {
+      (mockProviderConfigList, datalist) => {
           val w = new Waiter
-          val mockDelegateConfigSet = mockDelegateConfigList.toSet
+          val mockProviderConfigSet = mockProviderConfigList.toSet
           val data = datalist.toArray
           val repo = new InMemoryRepo
-          val storageManager = new StorageManager(repo,mockDelegateConfigSet)
+          val storageManager = new StorageManager(repo,mockProviderConfigSet)
           val newConfig = AppConfig(config, appConfig.rmq, appConfig.sc)
           val mockSender = MockitoSugar.mock[MessageSender]
           val service = new QuarterMasterService(newConfig, initMapping, mockSender, storageManager)
@@ -297,10 +297,10 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
           ) ~> routes ~> check {
             w{
               assert(status == Accepted)
-              val matchingDelegates: Set[StorageDelegate] = mockDelegateConfigSet.filter(_.labels.contains(label)).map(_.delegate)
-              val nonMatchingDelegates = mockDelegateConfigSet.filter(!_.labels.contains(label)).map(_.delegate)
-              matchingDelegates.map(verify(_, times(1)).write(any[AssetDigest], aryEq(data)))
-              nonMatchingDelegates.map(verify(_, never).write(any[AssetDigest], any[Array[Byte]]))
+              val matchingProviders: Set[StorageProvider] = mockProviderConfigSet.filter(_.labels.contains(label)).map(_.provider)
+              val nonMatchingProviders = mockProviderConfigSet.filter(!_.labels.contains(label)).map(_.provider)
+              matchingProviders.map(verify(_, times(1)).write(any[AssetDigest], aryEq(data)))
+              nonMatchingProviders.map(verify(_, never).write(any[AssetDigest], any[Array[Byte]]))
               mediaType.toString == "application/vnd.blinkbox.books.mapping.update.v1+json"
             }}
             w.dismiss()
