@@ -1,13 +1,14 @@
 package com.blinkbox.books.storageservice
 import java.lang.reflect.InvocationTargetException
-import akka.actor.{ActorRefFactory, ActorSystem, Props}
+import akka.actor.Actor.Receive
+import akka.actor.{Actor, ActorRefFactory, ActorSystem, Props}
 import akka.util.Timeout
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
-import com.blinkbox.books.spray.{Directives => CommonDirectives, HealthCheckHttpService, HttpServer, v2}
-import com.typesafe.scalalogging.slf4j.{StrictLogging}
-import org.json4s.{FieldSerializer, MappingException}
+import com.blinkbox.books.spray.{HealthCheckHttpService, HttpServer, v2, Directives => CommonDirectives}
+import com.typesafe.scalalogging.slf4j.StrictLogging
 import org.json4s.jackson.Serialization
+import org.json4s.{FieldSerializer, MappingException}
 import org.slf4j.LoggerFactory
 import spray.can.Http
 import spray.http.StatusCodes._
@@ -16,6 +17,7 @@ import spray.http._
 import spray.httpx.unmarshalling._
 import spray.routing._
 import spray.util.{LoggingContext, NotImplementedException}
+
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
 import scala.util.Right
@@ -116,17 +118,26 @@ class WebService(config: AppConfig, qms: QuarterMasterService) extends HttpServi
   implicit val executionContext = actorRefFactory.dispatcher
   val hsc = HealthService(actorRefFactory)
   val routes = new QuarterMasterRoutes(qms,actorRefFactory)
-  override def receive: Receive = runRoute(routes.routes ~ hsc.healthService.routes )
+  override def receive: Actor.Receive = runRoute(routes.routes ~ hsc.healthService.routes )
 }
 
 object Boot extends App with Configuration with StrictLogging  {
+  val initMapping: Mapping = Mapping("", List())
   logger.info("Starting quartermaster storage service")
   try {
     implicit val system = ActorSystem("storage-service", config)
     sys.addShutdownHook(system.shutdown())
     implicit val requestTimeout = Timeout(5.seconds)
     val appConfig = AppConfig(config, system)
-    val webService = system.actorOf(Props(classOf[WebService], appConfig), "storage-service")
+    val messageSender = new MessageSender(appConfig.rmq, system)
+    val repo = new InMemoryRepo
+    val localStorageDao = new LocalStorageDao(appConfig.sc.localStoragePath)
+    val delegate: StorageDelegate = StorageDelegate(repo, DelegateType("localStorage"), localStorageDao )
+    val localStorageLabels = appConfig.sc.localStorageLabels.map(lint => Label(lint.toString))
+    val delegateConfigs = Set(new DelegateConfig(delegate, localStorageLabels))
+    val storageManager = new StorageManager(repo, delegateConfigs)
+    val qms = QuarterMasterService(appConfig, initMapping, messageSender, storageManager)
+    val webService = system.actorOf(Props(classOf[WebService], appConfig, qms), "storage-service")
     HttpServer(Http.Bind(webService, interface = appConfig.host, port = appConfig.effectivePort))
   } catch {
     case NonFatal(e) =>

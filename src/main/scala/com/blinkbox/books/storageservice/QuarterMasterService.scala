@@ -1,8 +1,7 @@
 package com.blinkbox.books.storageservice
 
 import java.io.FileWriter
-import java.util.concurrent.Executors
-
+import java.util.concurrent.atomic.AtomicReference
 import akka.actor.{ActorRef, ActorRefFactory, Props}
 import akka.pattern.ask
 import com.blinkbox.books.json.DefaultFormats
@@ -19,10 +18,9 @@ import spray.http.DateTime
 import spray.util.NotImplementedException
 
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.Future
 import scala.io.Source
 import scala.util.control.NonFatal
-import java.util.concurrent.atomic.AtomicReference
 
 case class UserId(id: String)
 case class Label(label:String){
@@ -73,7 +71,7 @@ object MappingHelper extends JsonMethods with v2.JsonSupport {
   var loader: MappingLoader = new FileMappingLoader
 
   implicit object MappingValue extends JsonEventBody[Mapping] {
-    val jsonMediaType = MediaType("application/vnd.blinkbox.books.ingestion.storageservice.v2+json")
+    val jsonMediaType = MediaType("application/vnd.blinkbox.books.mapping.update.v1+json")
   }
 
   def fromJsonStr(jsonString: String): Mapping = {
@@ -101,7 +99,7 @@ class MessageSender(config: BlinkboxRabbitMqConfig, arf: ActorRefFactory) {
 }
 
 case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, messageSender: MessageSender, storageManager: StorageManager) {
-  val mapping= new java.util.concurrent.atomic.AtomicReference(initMapping)
+  val mapping= new AtomicReference(initMapping)
   val log = LoggerFactory.getLogger(classOf[QuarterMasterRoutes])
   def cleanUp(assetToken: AssetDigest, label:Label): Future[Map[DelegateType, Status]] =
     storageManager.cleanUp(assetToken, label).map(_.toMap)
@@ -127,7 +125,7 @@ case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, mess
     val storeAndBroadcastFuture = for {
       mapping <- Future(MappingHelper.fromJsonStr(mappingStr))
       _ = set(mapping)
-      _ <- MappingHelper.store(appConfig.mappingpath, mapping)
+      _ <- MappingHelper.store(appConfig.mappingPath, mapping)
       _ <- MappingHelper.broadcastUpdate(messageSender.qSender, appConfig.eventHeader, mapping)
     } yield MappingHelper.toJson(mapping)
     storeAndBroadcastFuture.onFailure {
@@ -142,7 +140,7 @@ case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, mess
   def loadMapping(): Future[String] = {
     val oldMapping = this.mapping.get
     val loadAndSetFuture = for {
-      newMapping <- MappingHelper.load(appConfig.mappingpath)
+      newMapping <- MappingHelper.load(appConfig.mappingPath)
       _ = set(newMapping)
     } yield MappingHelper.toJson(newMapping)
     loadAndSetFuture.onFailure{
