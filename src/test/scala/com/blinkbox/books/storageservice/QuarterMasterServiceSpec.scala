@@ -253,7 +253,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
     def routes = router.routes
     Get("/mappings") ~> routes ~> check {
       assert(status == OK )
-      mediaType.toString == "application/vnd.blinkbox.books.v2+json"
+      mediaType.toString == "application/vnd.blinkbox.books.mapping.update.v1+json"
     }
   }
 
@@ -265,7 +265,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
     def routes = router.routes
     Put("/mappings/refresh") ~> routes ~> check {
       assert(status == OK )
-      mediaType.toString == "application/vnd.blinkbox.books.v2+json"
+      mediaType.toString == "application/vnd.blinkbox.books.mapping.update.v1+json"
     }
   }
 
@@ -301,7 +301,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
               val nonMatchingDelegates = mockDelegateConfigSet.filter(!_.labels.contains(label)).map(_.delegate)
               matchingDelegates.map(verify(_, times(1)).write(any[AssetDigest], aryEq(data)))
               nonMatchingDelegates.map(verify(_, never).write(any[AssetDigest], any[Array[Byte]]))
-              mediaType.toString == "application/vnd.blinkbox.books.v2+json"
+              mediaType.toString == "application/vnd.blinkbox.books.mapping.update.v1+json"
             }}
             w.dismiss()
         }

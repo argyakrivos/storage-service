@@ -1,7 +1,7 @@
 package com.blinkbox.books.storageservice
 
 import java.io.FileWriter
-
+import java.util.concurrent.atomic.AtomicReference
 import akka.actor.{ActorRef, ActorRefFactory, Props}
 import akka.pattern.ask
 import com.blinkbox.books.json.DefaultFormats
@@ -71,7 +71,7 @@ object MappingHelper extends JsonMethods with v2.JsonSupport {
   var loader: MappingLoader = new FileMappingLoader
 
   implicit object MappingValue extends JsonEventBody[Mapping] {
-    val jsonMediaType = MediaType("application/vnd.blinkbox.books.ingestion.storageservice.v2+json")
+    val jsonMediaType = MediaType("application/vnd.blinkbox.books.mapping.update.v1+json")
   }
 
   def fromJsonStr(jsonString: String): Mapping = {
@@ -99,7 +99,7 @@ class MessageSender(config: BlinkboxRabbitMqConfig, arf: ActorRefFactory) {
 }
 
 case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, messageSender: MessageSender, storageManager: StorageManager) {
-  val mapping= new java.util.concurrent.atomic.AtomicReference(initMapping)
+  val mapping= new AtomicReference(initMapping)
   val log = LoggerFactory.getLogger(classOf[QuarterMasterRoutes])
   def cleanUp(assetToken: AssetDigest, label:Label): Future[Map[DelegateType, Status]] =
     storageManager.cleanUp(assetToken, label).map(_.toMap)
