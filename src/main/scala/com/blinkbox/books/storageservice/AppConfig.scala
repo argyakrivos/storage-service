@@ -4,6 +4,7 @@ import java.util.concurrent.TimeUnit
 
 import akka.actor.ActorRefFactory
 import akka.util.Timeout
+import com.blinkbox.books.config.ApiConfig
 import com.blinkbox.books.messaging.EventHeader
 import com.typesafe.config.Config
 import spray.http.Uri.Path
@@ -18,10 +19,7 @@ case class BlinkboxRabbitMqConfig(c: Config) {
 
 case class DelegateConfig(delegate: StorageDelegate, labels: Set[Label])
 
-case class AppConfig(c: Config, rmq: BlinkboxRabbitMqConfig,  sc: StorageConfig) {
-  val root = Path(c.getString("service.qm.api.public.root"))
-  val host = c.getString("service.qm.api.public.host")
-  val effectivePort = c.getInt("service.qm.api.public.effectivePort")
+case class AppConfig(c: Config, rmq: BlinkboxRabbitMqConfig, sc: StorageConfig, svc: ApiConfig) {
   val mappingEventHandler = EventHeader(c.getString("service.qm.mappingEventHandler"))
   val mappingPath = c.getString("service.qm.mappingPath")
   val eventHeader: EventHeader = EventHeader(c.getString("service.qm.sender.eventHeader"))
@@ -30,8 +28,10 @@ case class AppConfig(c: Config, rmq: BlinkboxRabbitMqConfig,  sc: StorageConfig)
 
 object AppConfig {
   implicit val timeout = Timeout(50L, TimeUnit.SECONDS)
+  val apiConfigKey: String = "service.qm.api.public"
+
   def apply(c: Config, arf: ActorRefFactory) =
-    new AppConfig(c, BlinkboxRabbitMqConfig(c),  StorageConfig(c))
+    new AppConfig(c, BlinkboxRabbitMqConfig(c),  StorageConfig(c), ApiConfig(c, apiConfigKey))
 }
 
 case class StorageConfig(c: Config) {

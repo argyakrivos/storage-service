@@ -5,6 +5,7 @@ import akka.actor.{Actor, ActorRefFactory, ActorSystem, Props}
 import akka.util.Timeout
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
+import com.blinkbox.books.logging.DiagnosticExecutionContext
 import com.blinkbox.books.spray.{HealthCheckHttpService, HttpServer, v2, Directives => CommonDirectives}
 import com.typesafe.scalalogging.slf4j.StrictLogging
 import org.json4s.jackson.Serialization
@@ -12,6 +13,7 @@ import org.json4s.{FieldSerializer, MappingException}
 import org.slf4j.LoggerFactory
 import spray.can.Http
 import spray.http.StatusCodes._
+import com.blinkbox.books.spray._
 import spray.http.Uri.Path
 import spray.http._
 import spray.httpx.unmarshalling._
@@ -98,7 +100,7 @@ with CommonDirectives with BasicUnmarshallers with v2.JsonSupport{
   val routes = {
     handleExceptions(exceptionHandler) {
       neverCache {
-        rootPath(appConfig.root) {
+        rootPath(Path("/")) {
           mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ storeAssetRoute
         }
       }
@@ -115,7 +117,7 @@ case class HealthService(arf: ActorRefFactory) {
 }
 
 class WebService(config: AppConfig, qms: QuarterMasterService) extends HttpServiceActor {
-  implicit val executionContext = actorRefFactory.dispatcher
+  implicit val executionContext = DiagnosticExecutionContext(actorRefFactory.dispatcher)
   val hsc = HealthService(actorRefFactory)
   val routes = new QuarterMasterRoutes(qms,actorRefFactory)
   override def receive: Actor.Receive = runRoute(routes.routes ~ hsc.healthService.routes )
@@ -137,8 +139,9 @@ object Boot extends App with Configuration with StrictLogging  {
     val delegateConfigs = Set(new DelegateConfig(delegate, localStorageLabels))
     val storageManager = new StorageManager(repo, delegateConfigs)
     val qms = QuarterMasterService(appConfig, initMapping, messageSender, storageManager)
+    val localUrl = appConfig.svc.localUrl
     val webService = system.actorOf(Props(classOf[WebService], appConfig, qms), "storage-service")
-    HttpServer(Http.Bind(webService, interface = appConfig.host, port = appConfig.effectivePort))
+    HttpServer(Http.Bind(webService, localUrl.getHost, port = localUrl.effectivePort))
   } catch {
     case NonFatal(e) =>
       logger.error("Error at startup, exiting", e)
