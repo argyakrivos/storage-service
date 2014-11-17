@@ -4,6 +4,8 @@ import java.util.concurrent.TimeUnit
 
 import akka.actor.ActorRefFactory
 import akka.util.Timeout
+import com.blinkbox.books
+import com.blinkbox.books.config
 import com.blinkbox.books.config.ApiConfig
 import com.blinkbox.books.messaging.EventHeader
 import com.blinkbox.books.rabbitmq.RabbitMqConfig
@@ -17,11 +19,14 @@ case class DelegateConfig(delegate: StorageDelegate, labels: Set[Label])
 
 case class AppConfig(mapping: MappingConfig, rabbitmq: RabbitMqConfig, storage: StorageConfig, api: ApiConfig)
 
-case class MappingConfig(c: Config) {
-  val mappingPath = c.getString("service.qm.mappingPath")
-  val minStorageDelegates = c.getInt("service.qm.storage.minStorageDelegates")
-  val senderString = c.getConfig("service.qm.sender")
-  val eventHeader = EventHeader(c.getString("service.qm.sender.eventHeader"))
+case class MappingConfig(path: String, sender: Config, eventHeader: EventHeader)
+
+object MappingConfig {
+  def apply(config: Config) = new MappingConfig(
+    config.getString("service.qm.mappingPath"),
+    config.getConfig("service.qm.sender"),
+    EventHeader(config.getString("service.qm.sender.eventHeader"))
+  )
 }
 
 object AppConfig {
@@ -34,6 +39,7 @@ object AppConfig {
 
 case class StorageConfig(c: Config) {
   val localStorageLabels = c.getIntList("service.qm.storage.local.localStorageLabels").asScala.toSet.map(Integer2int(_: Integer))
+  val  minStorageDelegates = c.getInt("service.qm.storage.minStorageDelegates")
   val localStoragePath = c.getString("service.qm.storage.local.localStoragePath")
   val localPath = c.getString("service.qm.storage.local.localPath")
 }
