@@ -106,7 +106,7 @@ case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, mess
 
   def storeAsset(bytes: Array[Byte], label: Label): Future[(AssetDigest, Future[Map[DelegateType, Status]])] = Future {
     val delegatesForLabel: Set[StorageDelegate] = storageManager.getDelegatesForLabel(label)
-    if (delegatesForLabel.size < appConfig.minStorageDelegates) {
+    if (delegatesForLabel.size < appConfig.mc.minStorageDelegates) {
         throw new NotImplementedException(s"label $label is has no available storage delegates")
       }
       if (bytes.size < 1) {
@@ -125,8 +125,8 @@ case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, mess
     val storeAndBroadcastFuture = for {
       mapping <- Future(MappingHelper.fromJsonStr(mappingStr))
       _ = set(mapping)
-      _ <- MappingHelper.store(appConfig.mappingPath, mapping)
-      _ <- MappingHelper.broadcastUpdate(messageSender.qSender, appConfig.eventHeader, mapping)
+      _ <- MappingHelper.store(appConfig.mc.mappingPath, mapping)
+      _ <- MappingHelper.broadcastUpdate(messageSender.qSender, appConfig.rmq.eventHeader, mapping)
     } yield MappingHelper.toJson(mapping)
     storeAndBroadcastFuture.onFailure {
       case NonFatal(e) =>
@@ -140,7 +140,7 @@ case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, mess
   def loadMapping(): Future[String] = {
     val oldMapping = this.mapping.get
     val loadAndSetFuture = for {
-      newMapping <- MappingHelper.load(appConfig.mappingPath)
+      newMapping <- MappingHelper.load(appConfig.mc.mappingPath)
       _ = set(newMapping)
     } yield MappingHelper.toJson(newMapping)
     loadAndSetFuture.onFailure{

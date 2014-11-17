@@ -15,14 +15,16 @@ import scala.collection.immutable.Set
 case class BlinkboxRabbitMqConfig(c: Config) {
   val senderString = c.getConfig("service.qm.sender")
   val serviceConfig = c.getConfig("service.qm.mq")
+  val eventHeader: EventHeader = EventHeader(c.getString("service.qm.sender.eventHeader"))
 }
 
 case class DelegateConfig(delegate: StorageDelegate, labels: Set[Label])
 
-case class AppConfig(c: Config, rmq: BlinkboxRabbitMqConfig, sc: StorageConfig, svc: ApiConfig) {
+case class AppConfig(mc: MappingConfig, rmq: BlinkboxRabbitMqConfig, sc: StorageConfig, svc: ApiConfig)
+
+case class MappingConfig(c:Config){
   val mappingEventHandler = EventHeader(c.getString("service.qm.mappingEventHandler"))
   val mappingPath = c.getString("service.qm.mappingPath")
-  val eventHeader: EventHeader = EventHeader(c.getString("service.qm.sender.eventHeader"))
   val minStorageDelegates = c.getInt("service.qm.storage.minStorageDelegates")
 }
 
@@ -31,7 +33,7 @@ object AppConfig {
   val apiConfigKey: String = "service.qm.api.public"
 
   def apply(c: Config, arf: ActorRefFactory) =
-    new AppConfig(c, BlinkboxRabbitMqConfig(c),  StorageConfig(c), ApiConfig(c, apiConfigKey))
+    new AppConfig(MappingConfig(c), BlinkboxRabbitMqConfig(c),  StorageConfig(c), ApiConfig(c, apiConfigKey))
 }
 
 case class StorageConfig(c: Config) {
