@@ -1,4 +1,10 @@
 # Change log
+## 0.1.3 ([#9](https://git.mobcastdev.com/Quartermaster/storage-service/pull/9) 2014-11-17 18:22:29)
+
+CP-1710: bug fix for storage configs, using standard configs, 
+
+bug fix: problems with merging , small pull request to effect change https://git.mobcastdev.com/Quartermaster/storage-service/pull/8
+
 ## 0.1.2 ([#6](https://git.mobcastdev.com/Quartermaster/storage-service/pull/6) 2014-11-14 16:04:22)
 
 Patch: CP-1710: renamed Delegate references to Provider to keep language...
