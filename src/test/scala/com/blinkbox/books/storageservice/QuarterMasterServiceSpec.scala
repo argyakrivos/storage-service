@@ -3,6 +3,7 @@ package com.blinkbox.books.storageservice
 import akka.testkit.{TestKit, EventFilter, ImplicitSender}
 import com.blinkbox.books.config.{ApiConfig, Configuration}
 import com.blinkbox.books.json.DefaultFormats
+import com.blinkbox.books.rabbitmq.RabbitMqConfig
 import com.blinkbox.books.test.MatcherSugar.eql
 import com.fasterxml.jackson.core.{JsonProcessingException, JsonParseException}
 import com.fasterxml.jackson.databind.JsonMappingException
@@ -83,7 +84,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
       "serviceName":"azure-a",
       "template":"http://azureservices.com/blinkbox/\\g<filename>.\\g<extenstion>"}]}"""
 
-  val appConfig = AppConfig(MappingConfig(config), MockitoSugar.mock[BlinkboxRabbitMqConfig], MockitoSugar.mock[StorageConfig],  ApiConfig(config, AppConfig.apiConfigKey))
+  val appConfig = AppConfig(MappingConfig(config), MockitoSugar.mock[RabbitMqConfig], MockitoSugar.mock[StorageConfig],  ApiConfig(config, AppConfig.apiConfigKey))
   MappingHelper.loader = new MappingLoader {
     override def load(path: String): String = mappingJsonStr
     override def write(path: String, json: String): Unit = ()

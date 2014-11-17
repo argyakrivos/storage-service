@@ -131,7 +131,7 @@ object Boot extends App with Configuration with StrictLogging  {
     sys.addShutdownHook(system.shutdown())
     implicit val requestTimeout = Timeout(5.seconds)
     val appConfig = AppConfig(config, system)
-    val messageSender = new MessageSender(appConfig.rmq, system)
+    val messageSender = new MessageSender(appConfig, system)
     val repo = new InMemoryRepo
     val localStorageDao = new LocalStorageDao(appConfig.sc.localStoragePath)
     val delegate: StorageDelegate = StorageDelegate(repo, DelegateType("localStorage"), localStorageDao )

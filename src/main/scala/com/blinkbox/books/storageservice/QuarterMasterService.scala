@@ -91,9 +91,9 @@ object MappingHelper extends JsonMethods with v2.JsonSupport {
   }
 }
 
-class MessageSender(config: BlinkboxRabbitMqConfig, arf: ActorRefFactory) {
-  private val reliableConnection = RabbitMq.reliableConnection(RabbitMqConfig(config.serviceConfig))
-  val publisherConfiguration: PublisherConfiguration = PublisherConfiguration(config.senderString)
+class MessageSender(config: AppConfig, arf: ActorRefFactory) {
+  private val reliableConnection = RabbitMq.reliableConnection(config.rmq)
+  val publisherConfiguration = PublisherConfiguration(config.mc.senderString)
   val qSender = arf.actorOf(Props(new RabbitMqConfirmedPublisher(reliableConnection, publisherConfiguration)), "QuarterMasterPublisher")
   val executionContext = DiagnosticExecutionContext(arf.dispatcher)
 }
@@ -126,7 +126,7 @@ case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, mess
       mapping <- Future(MappingHelper.fromJsonStr(mappingStr))
       _ = set(mapping)
       _ <- MappingHelper.store(appConfig.mc.mappingPath, mapping)
-      _ <- MappingHelper.broadcastUpdate(messageSender.qSender, appConfig.rmq.eventHeader, mapping)
+      _ <- MappingHelper.broadcastUpdate(messageSender.qSender, appConfig.mc.eventHeader, mapping)
     } yield MappingHelper.toJson(mapping)
     storeAndBroadcastFuture.onFailure {
       case NonFatal(e) =>
