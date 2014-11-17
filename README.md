@@ -1,4 +1,4 @@
-# Storage Location Abstraction Gadget
+# Storage Location Abstraction Gateway
 
 This service allows other services to store blob data and receive URLs for where it can be retrieved.
 
