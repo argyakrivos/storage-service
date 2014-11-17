@@ -101,13 +101,13 @@ class MessageSender(config: AppConfig, arf: ActorRefFactory) {
 case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, messageSender: MessageSender, storageManager: StorageManager) {
   val mapping= new AtomicReference(initMapping)
   val log = LoggerFactory.getLogger(classOf[QuarterMasterRoutes])
-  def cleanUp(assetToken: AssetDigest, label:Label): Future[Map[DelegateType, Status]] =
+  def cleanUp(assetToken: AssetDigest, label:Label): Future[Map[ProviderType, Status]] =
     storageManager.cleanUp(assetToken, label).map(_.toMap)
 
-  def storeAsset(bytes: Array[Byte], label: Label): Future[(AssetDigest, Future[Map[DelegateType, Status]])] = Future {
-    val delegatesForLabel: Set[StorageDelegate] = storageManager.getDelegatesForLabel(label)
-    if (delegatesForLabel.size < appConfig.storage.minStorageDelegates) {
-        throw new NotImplementedException(s"label $label is has no available storage delegates")
+  def storeAsset(bytes: Array[Byte], label: Label): Future[(AssetDigest, Future[Map[ProviderType, Status]])] = Future {
+    val providersForLabel: Set[StorageProvider] = storageManager.getProvidersForLabel(label)
+    if (providersForLabel.size < appConfig.storage.minStorageProviders) {
+        throw new NotImplementedException(s"label $label is has no available storage providers")
       }
       if (bytes.size < 1) {
         throw new IllegalArgumentException(s"no data")
@@ -117,7 +117,7 @@ case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, mess
       (assetToken, f)
   }
 
-  def getStatus(token: AssetDigest): Future[Map[DelegateType, Status]] =
+  def getStatus(token: AssetDigest): Future[Map[ProviderType, Status]] =
     storageManager.getStatus(token)
 
   def updateAndBroadcastMapping(mappingStr: String): Future[String] ={

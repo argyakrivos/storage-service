@@ -15,7 +15,7 @@ import spray.http.Uri.Path
 import scala.collection.JavaConverters._
 import scala.collection.immutable.Set
 
-case class DelegateConfig(delegate: StorageDelegate, labels: Set[Label])
+case class ProviderConfig(provider: StorageProvider, labels: Set[Label])
 
 case class AppConfig(mapping: MappingConfig, rabbitmq: RabbitMqConfig, storage: StorageConfig, api: ApiConfig)
 
@@ -39,7 +39,7 @@ object AppConfig {
 
 case class StorageConfig(c: Config) {
   val localStorageLabels = c.getIntList("service.qm.storage.local.localStorageLabels").asScala.toSet.map(Integer2int(_: Integer))
-  val  minStorageDelegates = c.getInt("service.qm.storage.minStorageDelegates")
+  val minStorageProviders = c.getInt("service.qm.storage.minStorageProviders")
   val localStoragePath = c.getString("service.qm.storage.local.localStoragePath")
   val localPath = c.getString("service.qm.storage.local.localPath")
 }

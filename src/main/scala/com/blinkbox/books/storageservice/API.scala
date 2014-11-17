@@ -134,10 +134,10 @@ object Boot extends App with Configuration with StrictLogging  {
     val messageSender = new MessageSender(appConfig, system)
     val repo = new InMemoryRepo
     val localStorageDao = new LocalStorageDao(appConfig.storage.localStoragePath)
-    val delegate: StorageDelegate = StorageDelegate(repo, DelegateType("localStorage"), localStorageDao )
+    val provider: StorageProvider = StorageProvider(repo, ProviderType("localStorage"), localStorageDao )
     val localStorageLabels = appConfig.storage.localStorageLabels.map(lint => Label(lint.toString))
-    val delegateConfigs = Set(new DelegateConfig(delegate, localStorageLabels))
-    val storageManager = new StorageManager(repo, delegateConfigs)
+    val providerConfigs = Set(new ProviderConfig(provider, localStorageLabels))
+    val storageManager = new StorageManager(repo, providerConfigs)
     val qms = QuarterMasterService(appConfig, initMapping, messageSender, storageManager)
     val localUrl = appConfig.api.localUrl
     val webService = system.actorOf(Props(classOf[WebService], appConfig, qms), "storage-service")
