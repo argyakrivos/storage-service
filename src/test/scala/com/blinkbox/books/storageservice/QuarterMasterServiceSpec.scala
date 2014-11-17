@@ -1,8 +1,9 @@
 package com.blinkbox.books.storageservice
 
 import akka.testkit.{TestKit, EventFilter, ImplicitSender}
-import com.blinkbox.books.config.Configuration
+import com.blinkbox.books.config.{ApiConfig, Configuration}
 import com.blinkbox.books.json.DefaultFormats
+import com.blinkbox.books.rabbitmq.RabbitMqConfig
 import com.blinkbox.books.test.MatcherSugar.eql
 import com.fasterxml.jackson.core.{JsonProcessingException, JsonParseException}
 import com.fasterxml.jackson.databind.JsonMappingException
@@ -83,7 +84,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
       "serviceName":"azure-a",
       "template":"http://azureservices.com/blinkbox/\\g<filename>.\\g<extenstion>"}]}"""
 
-  val appConfig = AppConfig(config, MockitoSugar.mock[BlinkboxRabbitMqConfig], MockitoSugar.mock[StorageConfig])
+  val appConfig = AppConfig(MappingConfig(config), MockitoSugar.mock[RabbitMqConfig], MockitoSugar.mock[StorageConfig],  ApiConfig(config, AppConfig.apiConfigKey))
   MappingHelper.loader = new MappingLoader {
     override def load(path: String): String = mappingJsonStr
     override def write(path: String, json: String): Unit = ()
@@ -225,7 +226,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
         when(repo.getStatus(any[JobId])).thenReturn(Future(Status.notFound))
         val randomSuccessAndFailingWriterConfigs = Random.shuffle(successfulProviderSet.toSet.union(mockFailingProviderSet.toSet))
         val storageManager = new StorageManager(repo, randomSuccessAndFailingWriterConfigs.toSet)
-        val newConfig = AppConfig(config, appConfig.rmq, appConfig.sc)
+        val newConfig = AppConfig(MappingConfig(config), appConfig.rabbitmq, appConfig.storage,  ApiConfig(config, AppConfig.apiConfigKey))
         val qms2 = new QuarterMasterService(newConfig, initMapping, MockitoSugar.mock[MessageSender], storageManager)
         val callAccepted = qms2.storeAsset(data, label)
         w{
@@ -278,7 +279,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
           val data = datalist.toArray
           val repo = new InMemoryRepo
           val storageManager = new StorageManager(repo,mockProviderConfigSet)
-          val newConfig = AppConfig(config, appConfig.rmq, appConfig.sc)
+          val newConfig = AppConfig(MappingConfig(config), appConfig.rabbitmq, appConfig.storage, ApiConfig(config, AppConfig.apiConfigKey))
           val mockSender = MockitoSugar.mock[MessageSender]
           val service = new QuarterMasterService(newConfig, initMapping, mockSender, storageManager)
           val router = new QuarterMasterRoutes(service,createActorSystem())

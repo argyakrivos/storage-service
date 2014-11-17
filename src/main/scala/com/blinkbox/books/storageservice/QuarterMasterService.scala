@@ -91,9 +91,9 @@ object MappingHelper extends JsonMethods with v2.JsonSupport {
   }
 }
 
-class MessageSender(config: BlinkboxRabbitMqConfig, arf: ActorRefFactory) {
-  private val reliableConnection = RabbitMq.reliableConnection(RabbitMqConfig(config.serviceConfig))
-  val publisherConfiguration: PublisherConfiguration = PublisherConfiguration(config.senderString)
+class MessageSender(config: AppConfig, arf: ActorRefFactory) {
+  private val reliableConnection = RabbitMq.reliableConnection(config.rabbitmq)
+  val publisherConfiguration = PublisherConfiguration(config.mapping.sender)
   val qSender = arf.actorOf(Props(new RabbitMqConfirmedPublisher(reliableConnection, publisherConfiguration)), "QuarterMasterPublisher")
   val executionContext = DiagnosticExecutionContext(arf.dispatcher)
 }
@@ -106,7 +106,7 @@ case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, mess
 
   def storeAsset(bytes: Array[Byte], label: Label): Future[(AssetDigest, Future[Map[ProviderType, Status]])] = Future {
     val providersForLabel: Set[StorageProvider] = storageManager.getProvidersForLabel(label)
-    if (providersForLabel.size < appConfig.minStorageProviders) {
+    if (providersForLabel.size < appConfig.storage.minStorageProviders) {
         throw new NotImplementedException(s"label $label is has no available storage providers")
       }
       if (bytes.size < 1) {
@@ -125,8 +125,8 @@ case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, mess
     val storeAndBroadcastFuture = for {
       mapping <- Future(MappingHelper.fromJsonStr(mappingStr))
       _ = set(mapping)
-      _ <- MappingHelper.store(appConfig.mappingPath, mapping)
-      _ <- MappingHelper.broadcastUpdate(messageSender.qSender, appConfig.eventHeader, mapping)
+      _ <- MappingHelper.store(appConfig.mapping.path, mapping)
+      _ <- MappingHelper.broadcastUpdate(messageSender.qSender, appConfig.mapping.eventHeader, mapping)
     } yield MappingHelper.toJson(mapping)
     storeAndBroadcastFuture.onFailure {
       case NonFatal(e) =>
@@ -140,7 +140,7 @@ case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, mess
   def loadMapping(): Future[String] = {
     val oldMapping = this.mapping.get
     val loadAndSetFuture = for {
-      newMapping <- MappingHelper.load(appConfig.mappingPath)
+      newMapping <- MappingHelper.load(appConfig.mapping.path)
       _ = set(newMapping)
     } yield MappingHelper.toJson(newMapping)
     loadAndSetFuture.onFailure{

@@ -40,7 +40,6 @@ paths:
           description: "The specified resource cannot be found on any of the associated providers."
           examples:
             application/vnd.blinkbox.books.ingestion.storageservice.v2+json: |
-              }: |
               {
                 "code": "NotFound",
                 "providers": ["azure-alpha", "gluster"]
