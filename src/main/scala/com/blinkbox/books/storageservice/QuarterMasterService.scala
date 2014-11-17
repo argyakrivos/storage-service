@@ -14,8 +14,10 @@ import org.json4s.FieldSerializer
 import org.json4s.jackson.JsonMethods
 import org.json4s.jackson.Serialization._
 import org.slf4j.LoggerFactory
+import shapeless.get
 import spray.http.DateTime
 import spray.util.NotImplementedException
+import scala.util.matching.Regex
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
@@ -26,7 +28,10 @@ case class UserId(id: String)
 case class Label(label:String){
 }
 case class AssetData(timeStarted: DateTime, totalSize: Long)
-case class UrlTemplate(serviceName: String, template: String) {
+case class UrlTemplate(serviceName:ServiceName, label:Label, template:String, extractor: String) {
+  val regex = new Regex(extractor)
+  def matches(digest: AssetDigest): Boolean = regex.findFirstMatchIn(digest.url).isDefined
+
   implicit val formats = DefaultFormats + FieldSerializer[UrlTemplate]()
 }
 
@@ -45,8 +50,7 @@ object GenAssetDigest{
     AssetDigest(s"bbbmap:$labelString:$sha1")
   }
 }
-
-case class Mapping(extractor: String, templates: List[UrlTemplate])
+case class Mapping(templates: List[UrlTemplate])
 
 trait MappingLoader {
   def load(path: String): String
@@ -98,55 +102,51 @@ class MessageSender(config: BlinkboxRabbitMqConfig, arf: ActorRefFactory) {
   val executionContext = DiagnosticExecutionContext(arf.dispatcher)
 }
 
-case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, messageSender: MessageSender, storageManager: StorageManager) {
-  val mapping= new AtomicReference(initMapping)
-  val log = LoggerFactory.getLogger(classOf[QuarterMasterRoutes])
-  def cleanUp(assetToken: AssetDigest, label:Label): Future[Map[ProviderType, Status]] =
-    storageManager.cleanUp(assetToken, label).map(_.toMap)
+case class QuarterMasterService(appConfig: AppConfig,  messageSender: MessageSender, storageManager: StorageManager) {
 
-  def storeAsset(bytes: Array[Byte], label: Label): Future[(AssetDigest, Future[Map[ProviderType, Status]])] = Future {
-    val providersForLabel: Set[StorageProvider] = storageManager.getProvidersForLabel(label)
-    if (providersForLabel.size < appConfig.minStorageProviders) {
-        throw new NotImplementedException(s"label $label is has no available storage providers")
-      }
-      if (bytes.size < 1) {
-        throw new IllegalArgumentException(s"no data")
-      }
-      val assetToken = GenAssetDigest(bytes,label)
-      val f = storageManager.storeAsset(assetToken, bytes, label)
-      (assetToken, f)
+  val log = LoggerFactory.getLogger(classOf[QuarterMasterRoutes])
+
+  def cleanUp(assetDigest: AssetDigest): Future[Map[ServiceName, Status]] =
+    storageManager.cleanUp(assetDigest).map(_.toMap)
+
+  def storeAsset(bytes: Array[Byte], label: Label): Future[(AssetDigest, Future[Map[ServiceName, Status]])] = Future {
+    if (storageManager.getProvidersForLabel(label).size < appConfig.minStorageProviders) {
+      throw new NotImplementedException(s"label $label is has no available storage providers")
+    }
+    if (bytes.size < 1) {
+      throw new IllegalArgumentException(s"no data")
+    }
+    storageManager.storeAsset(label, bytes)
   }
 
-  def getStatus(token: AssetDigest): Future[Map[ProviderType, Status]] =
-    storageManager.getStatus(token)
+  def getStatus(assetDigest: AssetDigest): Future[Map[ServiceName, Status]] =
+    storageManager.getStatus(assetDigest)
 
   def updateAndBroadcastMapping(mappingStr: String): Future[String] ={
-    val oldMapping = this.mapping.get
+    val oldMapping = storageManager.mapping.get
     val storeAndBroadcastFuture = for {
-      mapping <- Future(MappingHelper.fromJsonStr(mappingStr))
-      _ = set(mapping)
-      _ <- MappingHelper.store(appConfig.mappingPath, mapping)
-      _ <- MappingHelper.broadcastUpdate(messageSender.qSender, appConfig.eventHeader, mapping)
-    } yield MappingHelper.toJson(mapping)
+      newMapping <- Future(MappingHelper.fromJsonStr(mappingStr))
+      _ = storageManager.mapping.compareAndSet(oldMapping,newMapping)
+      _ <- MappingHelper.store(appConfig.mappingPath, newMapping)
+      _ <- MappingHelper.broadcastUpdate(messageSender.qSender, appConfig.eventHeader, newMapping)
+    } yield MappingHelper.toJson(newMapping)
     storeAndBroadcastFuture.onFailure {
       case NonFatal(e) =>
         log.error("couldnt storeAndBroadcast mapping",e)
-        this.mapping.set(oldMapping)}
+        storageManager.mapping.set(oldMapping)}
     storeAndBroadcastFuture
   }
 
-  def set(newMapping: Mapping): Unit = this.mapping.set(newMapping)
-
   def loadMapping(): Future[String] = {
-    val oldMapping = this.mapping.get
+    val oldMapping = storageManager.mapping.get
     val loadAndSetFuture = for {
       newMapping <- MappingHelper.load(appConfig.mappingPath)
-      _ = set(newMapping)
+      _ = storageManager.mapping.compareAndSet(oldMapping,newMapping)
     } yield MappingHelper.toJson(newMapping)
     loadAndSetFuture.onFailure{
       case NonFatal(e) =>
         log.error("couldnt load mapping",e)
-        this.mapping.set(oldMapping)
+        storageManager.mapping.set(oldMapping)
     }
     loadAndSetFuture
   }

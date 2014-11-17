@@ -18,7 +18,7 @@ case class BlinkboxRabbitMqConfig(c: Config) {
 
 case class ProviderConfig(provider: StorageProvider, labels: Set[Label])
 
-case class AppConfig(c: Config, rmq: BlinkboxRabbitMqConfig,  sc: StorageConfig) {
+case class AppConfig(c: Config, rmq: BlinkboxRabbitMqConfig,  lsc: LocalStorageConfig) {
   val root = Path(c.getString("service.qm.api.public.root"))
   val host = c.getString("service.qm.api.public.host")
   val effectivePort = c.getInt("service.qm.api.public.effectivePort")
@@ -31,11 +31,16 @@ case class AppConfig(c: Config, rmq: BlinkboxRabbitMqConfig,  sc: StorageConfig)
 object AppConfig {
   implicit val timeout = Timeout(50L, TimeUnit.SECONDS)
   def apply(c: Config, arf: ActorRefFactory) =
-    new AppConfig(c, BlinkboxRabbitMqConfig(c),  StorageConfig(c))
+    new AppConfig(c, BlinkboxRabbitMqConfig(c),  LocalStorageConfig(c))
 }
 
-case class StorageConfig(c: Config) {
-  val localStorageLabels = c.getIntList("service.qm.storage.local.localStorageLabels").asScala.toSet.map(Integer2int(_: Integer))
-  val localStoragePath = c.getString("service.qm.storage.local.localStoragePath")
-  val localPath = c.getString("service.qm.storage.local.localPath")
+case class LocalStorageConfig(c: Config) extends NamedConfig{
+  val localStorageLabels = c.getIntList("service.qm.storage.providers.local.localStorageLabels").asScala.toSet.map(Integer2int(_: Integer))
+  val localStoragePath = c.getString("service.qm.storage.providers.local.localStoragePath")
+  val localPath = c.getString("service.qm.storage.providers.local.localPath")
+  val serviceName = c.getString("service.qm.storage.providers.local.serviceName")
+}
+
+trait NamedConfig {
+  val serviceName:String
 }

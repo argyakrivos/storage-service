@@ -34,7 +34,7 @@ with CommonDirectives with BasicUnmarshallers with v2.JsonSupport{
 
   val mappingRoute = path(mappingUri) {
     get {
-      complete(StatusCodes.OK,MappingHelper.toJson(qms.mapping.get))
+      complete(StatusCodes.OK,MappingHelper.toJson(qms.storageManager.mapping.get))
     }
   }
 
@@ -70,7 +70,7 @@ with CommonDirectives with BasicUnmarshallers with v2.JsonSupport{
     get {
       implicit val formats = DefaultFormats + FieldSerializer[AssetDigest]()
       path(resourcesUri / Segment).as(AssetDigest) {
-        assetToken => complete(StatusCodes.OK, qms.getStatus(assetToken))
+        assetDigest => complete(StatusCodes.OK, qms.getStatus(assetDigest))
       }
     }
 
@@ -122,7 +122,7 @@ class WebService(config: AppConfig, qms: QuarterMasterService) extends HttpServi
 }
 
 object Boot extends App with Configuration with StrictLogging  {
-  val initMapping: Mapping = Mapping("", List())
+  val initMapping: Mapping = Mapping(List())
   logger.info("Starting quartermaster storage service")
   try {
     implicit val system = ActorSystem("storage-service", config)
@@ -131,12 +131,11 @@ object Boot extends App with Configuration with StrictLogging  {
     val appConfig = AppConfig(config, system)
     val messageSender = new MessageSender(appConfig.rmq, system)
     val repo = new InMemoryRepo
-    val localStorageDao = new LocalStorageDao(appConfig.sc.localStoragePath)
-    val provider: StorageProvider = StorageProvider(repo, ProviderType("localStorage"), localStorageDao )
-    val localStorageLabels = appConfig.sc.localStorageLabels.map(lint => Label(lint.toString))
-    val providerConfigs = Set(new ProviderConfig(provider, localStorageLabels))
-    val storageManager = new StorageManager(repo, providerConfigs)
-    val qms = QuarterMasterService(appConfig, initMapping, messageSender, storageManager)
+    val localStorageDao =  LocalStorageDao(appConfig.lsc)
+    val provider: StorageProvider = StorageProvider(repo, localStorageDao )
+    val localStorageLabels = appConfig.lsc.localStorageLabels.map(lint => Label(lint.toString))
+    val storageManager =  StorageManager(repo, initMapping, Set(provider) )
+    val qms = QuarterMasterService(appConfig, messageSender, storageManager )
     val webService = system.actorOf(Props(classOf[WebService], appConfig, qms), "storage-service")
     HttpServer(Http.Bind(webService, interface = appConfig.host, port = appConfig.effectivePort))
   } catch {

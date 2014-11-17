@@ -38,7 +38,7 @@ object Status extends Ordering[Status] {
     }
   }
 
-  def getStatus(progress: List[Progress], name: ProviderType): Status = progress.foldRight[Status](failed)(earlierStatus)
+  def getStatus(progress: List[Progress], name: ServiceName): Status = progress.foldRight[Status](failed)(earlierStatus)
 }
 
 trait StorageProviderRepo {
