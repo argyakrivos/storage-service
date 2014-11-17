@@ -4,47 +4,42 @@ import java.util.concurrent.TimeUnit
 
 import akka.actor.ActorRefFactory
 import akka.util.Timeout
+import com.blinkbox.books
+import com.blinkbox.books.config
+import com.blinkbox.books.config.ApiConfig
 import com.blinkbox.books.messaging.EventHeader
-import com.blinkbox.books.spray.HealthCheckHttpService
+import com.blinkbox.books.rabbitmq.RabbitMqConfig
 import com.typesafe.config.Config
 import spray.http.Uri.Path
 
 import scala.collection.JavaConverters._
+import scala.collection.immutable.Set
 
-case class HealthServiceConfig(arf: ActorRefFactory) {
-  val healthService =
-    new HealthCheckHttpService {
-      override implicit def actorRefFactory = arf
+case class DelegateConfig(delegate: StorageDelegate, labels: Set[Label])
 
-      override val basePath = Path("/")
-    }
-}
+case class AppConfig(mapping: MappingConfig, rabbitmq: RabbitMqConfig, storage: StorageConfig, api: ApiConfig)
 
-case class BlinkboxRabbitMqConfig(c: Config) {
-  val senderString = c.getConfig("service.qm.sender")
-  val serviceConfig = c.getConfig("service.qm")
-}
+case class MappingConfig(path: String, sender: Config, eventHeader: EventHeader)
 
-case class DelegateConfig(delegate: StorageDelegate, labels: Set[Int])
-
-case class AppConfig(c: Config, rmq: BlinkboxRabbitMqConfig, hsc: HealthServiceConfig, sc: StorageConfig) {
-  val root = Path(c.getString("service.qm.api.public.root"))
-  val host = c.getString("service.qm.api.public.host")
-  val effectivePort = c.getInt("service.qm.api.public.effectivePort")
-  val mappingEventHandler = EventHeader(c.getString("service.qm.mappingEventHandler"))
-  val mappingpath = c.getString("service.qm.mappingpath")
-  val eventHeader: EventHeader = EventHeader(c.getString("service.qm.sender.eventHeader"))
-  val minStorageDelegates = c.getInt("service.qm.storage.minStorageDelegates")
+object MappingConfig {
+  def apply(config: Config) = new MappingConfig(
+    config.getString("service.qm.mappingPath"),
+    config.getConfig("service.qm.sender"),
+    EventHeader(config.getString("service.qm.sender.eventHeader"))
+  )
 }
 
 object AppConfig {
   implicit val timeout = Timeout(50L, TimeUnit.SECONDS)
+  val apiConfigKey: String = "service.qm.api.public"
+
   def apply(c: Config, arf: ActorRefFactory) =
-    new AppConfig(c, BlinkboxRabbitMqConfig(c), HealthServiceConfig(arf), StorageConfig(c))
+    new AppConfig(MappingConfig(c), RabbitMqConfig(c.getConfig("service.qm.mq")),  StorageConfig(c), ApiConfig(c, apiConfigKey))
 }
 
 case class StorageConfig(c: Config) {
-  val localstoragelabels = c.getIntList("service.qm.localStorageLabels").asScala.toSet.map(Integer2int(_: Integer))
-  val localStoragePath = c.getString("service.qm.localStoragePath")
+  val localStorageLabels = c.getIntList("service.qm.storage.local.localStorageLabels").asScala.toSet.map(Integer2int(_: Integer))
+  val  minStorageDelegates = c.getInt("service.qm.storage.minStorageDelegates")
+  val localStoragePath = c.getString("service.qm.storage.local.localStoragePath")
   val localPath = c.getString("service.qm.storage.local.localPath")
 }

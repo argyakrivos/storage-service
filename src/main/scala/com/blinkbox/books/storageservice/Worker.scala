@@ -11,87 +11,87 @@ import scala.concurrent.Future
 
 case class DelegateType(name: String)
 
-case class JobId(delegateType: DelegateType, assetToken: AssetToken)
+case class JobId(delegateType: DelegateType, assetToken: AssetDigest)
 
 trait StorageDao {
   val rootPath: String
 
-  def write(assetToken: AssetToken, data: Array[Byte]): Future[Unit]
+  def write(assetToken: AssetDigest, data: Array[Byte]): Future[Unit]
 
-  def cleanUp(assetToken: AssetToken): Future[Unit]
+  def cleanUp(assetToken: AssetDigest): Future[Unit]
 }
 
 case class StorageDelegate(repo: StorageWorkerRepo, delegateType: DelegateType, dao: StorageDao) {
-  def isValidStatus(status: Status) = status match {
-    case Status.notFound | Status.finished | Status.failed => false
-    case _ => true
+  def isAssetWritable(status: Status) = status match {
+    case Status.notFound | Status.finished | Status.failed => true
+    case _ => false
   }
 
-  def writeIfNotStarted(assetToken: AssetToken, data: Array[Byte]): Future[(DelegateType, Status)] = {
+  def writeIfNotStarted(assetToken: AssetDigest, data: Array[Byte]): Future[(DelegateType, Status)] = {
     val jobId = JobId(delegateType, assetToken)
-    repo.getStatus(jobId).flatMap(status => isValidStatus(status) match {
-      case true => Future.successful(delegateType, status)
-      case _ => write(assetToken, data)
+    repo.getStatus(jobId).flatMap(status => isAssetWritable(status) match {
+      case true => write(assetToken, data).recoverWith({ case _ => cleanUp(assetToken)})
+      case _ => Future.successful(delegateType, status)
     })
   }
 
-  def write(assetToken: AssetToken, data: Array[Byte]): Future[(DelegateType, Status)] = {
+  def write(assetToken: AssetDigest, data: Array[Byte]): Future[(DelegateType, Status)] = {
     val numBytes = data.length
     val started = DateTime.now
     val jobId = JobId(delegateType, assetToken)
     for {
       _ <- repo.updateProgress(jobId, numBytes, started, 0)
-      _ <- Future(dao.write(assetToken, data))
+      _ <- dao.write(assetToken, data)
       _ <- repo.removeProgress(jobId)
     } yield (delegateType, Status.finished)
   }
 
-  def cleanUp(assetToken: AssetToken): Future[(DelegateType, Status)] =
+  def cleanUp(assetToken: AssetDigest): Future[(DelegateType, Status)] =
     for {
-      _ <- Future(dao.cleanUp(assetToken))
+      _ <- dao.cleanUp(assetToken)
       _ <- repo.removeProgress(JobId(delegateType, assetToken))
     } yield (delegateType, Status.failed)
 }
 
-case class StorageManager(repo: StorageWorkerRepo, delegateConfigs: Set[DelegateConfig]) {
+ case class StorageManager(repo: StorageWorkerRepo, delegateConfigs: Set[DelegateConfig]) {
   val delegateTypes = delegateConfigs.map(_.delegate.delegateType)
   val label2Delegates = getDelegates(delegateConfigs)
 
   private def toImmutableMap[A, B](x: collection.mutable.Map[A, collection.mutable.Set[B]]): Map[A, collection.immutable.Set[B]] =
     x.map((kv) => (kv._1, kv._2.toSet)).toMap
 
-  private def getDelegates(delegateConfigs: Set[DelegateConfig]): Map[Int, Set[StorageDelegate]] = {
-    val tmpMultiMap = new HashMap[Int, collection.mutable.Set[StorageDelegate]] with MultiMap[Int, StorageDelegate]
+  private def getDelegates(delegateConfigs: Set[DelegateConfig]): Map[Label, Set[StorageDelegate]] = {
+    val tmpMultiMap = new HashMap[Label, collection.mutable.Set[StorageDelegate]] with MultiMap[Label, StorageDelegate]
     delegateConfigs.map((dc) => dc.labels.map((label) => tmpMultiMap.addBinding(label, dc.delegate)))
-    toImmutableMap[Int, StorageDelegate](tmpMultiMap)
+    toImmutableMap[Label, StorageDelegate](tmpMultiMap)
   }
 
-  def getDelegatesForLabel(label: Int): Set[StorageDelegate] = {
+  def getDelegatesForLabel(label: Label): Set[StorageDelegate] = {
     label2Delegates.getOrElse(label, Set.empty)
   }
 
-  def storeAsset(assetToken: AssetToken, data: Array[Byte], label: Int): Future[Map[DelegateType, Status]] = {
-    val storageDelegates: Set[StorageDelegate] = getDelegatesForLabel(label)
-    Future.traverse[StorageDelegate, (DelegateType, Status), Set](storageDelegates)(_.write(assetToken, data))
-      .recoverWith({ case _ => cleanUp(assetToken, label)}).map(_.toMap)
+  def storeAsset(assetToken: AssetDigest, data: Array[Byte], label: Label): Future[Map[DelegateType, Status]] = {
+    val storageDelegates = getDelegatesForLabel(label)
+     Future.traverse[StorageDelegate, (DelegateType, Status), Set](storageDelegates)(_.writeIfNotStarted(assetToken, data))
+     .map{ (s) =>  s.toMap}
   }
 
-  def getStatus(assetToken: AssetToken): Future[Map[DelegateType, Status]] =
+  def getStatus(assetToken: AssetDigest): Future[Map[DelegateType, Status]] =
     Future.traverse(delegateTypes)((dt) =>
       repo.getStatus(JobId(dt, assetToken)).map((dt, _))).map(_.toMap)
 
-  def getProgress(assetToken: AssetToken): Future[Map[DelegateType, Option[Progress]]] =
+  def getProgress(assetToken: AssetDigest): Future[Map[DelegateType, Option[Progress]]] =
     Future.traverse(delegateTypes)((dt) =>
       repo.getProgress(JobId(dt, assetToken)).map((dt, _))).map(_.toMap)
 
-  def cleanUp(assetToken: AssetToken, label: Int): Future[Set[(DelegateType, Status)]] =
+  def cleanUp(assetToken: AssetDigest, label: Label): Future[Set[(DelegateType, Status)]] =
     Future.traverse(getDelegatesForLabel(label))(_.cleanUp(assetToken))
 }
 
 case class LocalStorageDao(rootPath: String) extends StorageDao {
-  def getPath(assetToken: AssetToken): Path = FileSystems.getDefault.getPath(rootPath, assetToken.toFileString())
+  def getPath(assetToken: AssetDigest): Path = FileSystems.getDefault.getPath(rootPath, assetToken.toFileString())
 
-  override def write(assetToken: AssetToken, data: Array[Byte]): Future[Unit] = Future(Files.write(getPath(assetToken), data))
+  override def write(assetToken: AssetDigest, data: Array[Byte]): Future[Unit] = Future(Files.write(getPath(assetToken), data))
 
-  override def cleanUp(assetToken: AssetToken): Future[Unit] = Future(Files.deleteIfExists(getPath(assetToken))).map(_ => ())
+  override def cleanUp(assetToken: AssetDigest): Future[Unit] = Future(Files.deleteIfExists(getPath(assetToken))).map(_ => ())
 }

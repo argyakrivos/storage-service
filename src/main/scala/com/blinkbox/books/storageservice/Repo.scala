@@ -6,26 +6,26 @@ import scala.collection.concurrent.TrieMap
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 
-case class Status(eta: DateTime, available: Boolean)
+case class Status(eta: DateTime, available: Boolean, percentComplete:Double)
 
-case class Progress(assetData: AssetData, sizeWritten: Long)
+case class Progress(assetData: AssetData, sizeWritten: Long){
+  val isDone = sizeWritten >= assetData.totalSize
+}
 
 object Status extends Ordering[Status] {
-  val failed = new Status(DateTime.MaxValue, false)
-  val notFound = new Status(DateTime.MinValue, false)
-  val finished = new Status(DateTime.MinValue, true)
+  val failed = new Status(DateTime.MaxValue, false,0)
+  val notFound = new Status(DateTime.MinValue, false,0)
+  val finished = new Status(DateTime.MinValue, true, 100)
 
   override def compare(a: Status, b: Status): Int = a.eta.clicks compare b.eta.clicks
 
-  def isDone(progress: Progress): Boolean = progress.sizeWritten >= progress.assetData.totalSize
-
   def earlierStatus(latestProgress: Progress, earliestStatus: Status): Status =
-    min(earliestStatus, toStatus(latestProgress))
+    min(earliestStatus, Status(latestProgress))
 
-  def toStatus(progress: Progress): Status = {
+  def apply(progress: Progress): Status = {
     val now = DateTime.now
-    if (isDone(progress))
-      new Status(now, true)
+    if (progress.isDone)
+      new Status(now, true, 100)
     else {
       val size = progress.assetData.totalSize
       val written = progress.sizeWritten
@@ -34,7 +34,7 @@ object Status extends Ordering[Status] {
       val timeTakenMillis = now.clicks - start.clicks
       val bytesPerMillis = written / timeTakenMillis
       val etaClicks = unwritten / bytesPerMillis
-      new Status(now + etaClicks, false)
+      new Status(now + etaClicks, false, (written/size)*100)
     }
   }
 
@@ -63,7 +63,7 @@ class InMemoryRepo extends StorageWorkerRepo {
     Future(repo.get(jobId))
 
   override def getStatus(jobId: JobId) =
-    Future(repo.get(jobId).map(Status.toStatus).getOrElse(Status.notFound))
+    Future(repo.get(jobId).map(Status.apply).getOrElse(Status.notFound))
 
   override def removeProgress(jobId: JobId) =
     Future(repo.remove(jobId))
