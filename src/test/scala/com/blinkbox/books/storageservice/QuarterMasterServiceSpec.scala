@@ -226,7 +226,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
         when(repo.getStatus(any[JobId])).thenReturn(Future(Status.notFound))
         val randomSuccessAndFailingWriterConfigs = Random.shuffle(successfulDelegateSet.toSet.union(mockFailingDelegateSet.toSet))
         val storageManager = new StorageManager(repo, randomSuccessAndFailingWriterConfigs.toSet)
-        val newConfig = AppConfig(MappingConfig(config), appConfig.rmq, appConfig.sc,  ApiConfig(config, AppConfig.apiConfigKey))
+        val newConfig = AppConfig(MappingConfig(config), appConfig.rabbitmq, appConfig.storage,  ApiConfig(config, AppConfig.apiConfigKey))
         val qms2 = new QuarterMasterService(newConfig, initMapping, MockitoSugar.mock[MessageSender], storageManager)
         val callAccepted = qms2.storeAsset(data, label)
         w{
@@ -279,7 +279,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
           val data = datalist.toArray
           val repo = new InMemoryRepo
           val storageManager = new StorageManager(repo,mockDelegateConfigSet)
-          val newConfig = AppConfig(MappingConfig(config), appConfig.rmq, appConfig.sc, ApiConfig(config, AppConfig.apiConfigKey))
+          val newConfig = AppConfig(MappingConfig(config), appConfig.rabbitmq, appConfig.storage, ApiConfig(config, AppConfig.apiConfigKey))
           val mockSender = MockitoSugar.mock[MessageSender]
           val service = new QuarterMasterService(newConfig, initMapping, mockSender, storageManager)
           val router = new QuarterMasterRoutes(service,createActorSystem())

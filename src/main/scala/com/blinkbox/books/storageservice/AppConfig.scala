@@ -15,7 +15,7 @@ import scala.collection.immutable.Set
 
 case class DelegateConfig(delegate: StorageDelegate, labels: Set[Label])
 
-case class AppConfig(mc: MappingConfig, rmq: RabbitMqConfig, sc: StorageConfig, svc: ApiConfig)
+case class AppConfig(mapping: MappingConfig, rabbitmq: RabbitMqConfig, storage: StorageConfig, api: ApiConfig)
 
 case class MappingConfig(c: Config) {
   val mappingPath = c.getString("service.qm.mappingPath")
