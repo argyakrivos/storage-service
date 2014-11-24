@@ -1,28 +1,28 @@
 package com.blinkbox.books.storageservice
 
 import java.io.FileWriter
-import java.util.concurrent.atomic.AtomicReference
-import akka.actor.{ActorRef, ActorRefFactory, Props}
+
+import akka.actor.{ActorRefFactory, Props}
 import akka.pattern.ask
 import com.blinkbox.books.json.DefaultFormats
 import com.blinkbox.books.logging.DiagnosticExecutionContext
-import com.blinkbox.books.messaging.{Event, EventHeader, JsonEventBody, MediaType}
+import com.blinkbox.books.messaging.{Event, JsonEventBody, MediaType}
 import com.blinkbox.books.rabbitmq.RabbitMqConfirmedPublisher.PublisherConfiguration
-import com.blinkbox.books.rabbitmq.{RabbitMq, RabbitMqConfig, RabbitMqConfirmedPublisher}
+import com.blinkbox.books.rabbitmq.{RabbitMq, RabbitMqConfirmedPublisher}
 import com.blinkbox.books.spray.{v2, Directives => CommonDirectives}
 import org.json4s.FieldSerializer
 import org.json4s.jackson.JsonMethods
 import org.json4s.jackson.Serialization._
 import org.slf4j.LoggerFactory
-import shapeless.get
 import spray.http.DateTime
 import spray.util.NotImplementedException
-import scala.util.matching.Regex
 
+import scala.collection.SeqView
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.io.Source
 import scala.util.control.NonFatal
+import scala.util.matching.Regex
 
 case class UserId(id: String)
 case class Label(label:String){
@@ -31,6 +31,17 @@ case class AssetData(timeStarted: DateTime, totalSize: Long)
 case class UrlTemplate(providerId:ProviderId, label:Label, template:String, extractor: String) {
   val regex = new Regex(extractor)
   def matches(digest: AssetDigest): Boolean = regex.findFirstMatchIn(digest.url).isDefined
+
+  def getFullUrl(accString:String, tuple:(String,Int)):String = tuple match {
+    case  (groupVal, groupNum) => {
+      accString.replaceAll("""\\'""" +(groupNum+1) + """'""", groupVal)
+    }
+  }
+
+  def createUrlFrom(digest:AssetDigest):Option[String] =
+    for {
+      firstMatch <- regex.findFirstMatchIn(digest.url)
+    } yield firstMatch.subgroups.view.zipWithIndex.foldLeft(template)(getFullUrl)
 
   implicit val formats = DefaultFormats + FieldSerializer[UrlTemplate]()
 }
@@ -69,7 +80,6 @@ case class FileMappingLoader() extends MappingLoader {
 }
 
 case class MappingHelper(loader: MappingLoader) extends JsonMethods with v2.JsonSupport {
-
   val extractorName = "extractor"
   val templatesName = "templates"
 

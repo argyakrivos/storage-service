@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicReference
 import com.blinkbox.books
 import com.blinkbox.books.config
 import com.blinkbox.books.spray.{Directives => CommonDirectives}
+import shapeless.get
 import spray.http.DateTime
 import com.typesafe.config.Config
 import scala.collection.mutable.{HashMap, MultiMap}
@@ -20,8 +21,8 @@ abstract class StorageDao {
   val providerId: ProviderId = storageConfig.providerId
 
   def write(assetDigest: AssetDigest, data: Array[Byte]): Future[Unit]
-
   def cleanUp(assetDigest: AssetDigest): Future[Unit]
+  def exists(assetDigest:AssetDigest): Future[Boolean]
 }
 
 case class StorageProvider(repo: StorageProviderRepo,  dao: StorageDao) {
@@ -60,17 +61,17 @@ case class StorageProvider(repo: StorageProviderRepo,  dao: StorageDao) {
  case class StorageManager(repo: StorageProviderRepo, initMapping: Mapping, storageProviders:Set[StorageProvider]) {
    val mapping= new AtomicReference(initMapping)
 
-   def getProvidersForLabel(label: Label):Set[StorageProvider] = {
-     val providerIds = mapping.get.templates.filter(_.label == label).map(_.providerId)
-     storageProviders.filter(sp => providerIds.contains(sp.providerId))
-   }
+   def getProvidersFor(fn:(UrlTemplate)=>Boolean):Set[StorageProvider] = (for {
+     template <- mapping.get.templates
+     if fn(template)
+     storageProvider <- storageProviders
+     if storageProvider.providerId == template.providerId
+   } yield storageProvider).toSet
 
-   def getProvidersForDigest(digest: AssetDigest):Set[StorageProvider] = {
-     val providerIds = mapping.get.templates.filter(_.matches(digest)).map(_.providerId)
-     storageProviders.filter(sp => providerIds.contains(sp.providerId))
-   }
+    def getProvidersForLabel(label: Label):Set[StorageProvider] = getProvidersFor(_.label == label)
+    def getProvidersForDigest(digest: AssetDigest):Set[StorageProvider] = getProvidersFor(_.matches(digest))
 
-  def storeAsset(label: Label, data: Array[Byte]): (AssetDigest, Future[Map[ProviderId, Status]]) = {
+    def storeAsset(label: Label, data: Array[Byte]): (AssetDigest, Future[Map[ProviderId, Status]]) = {
     val ad = GenAssetDigest(data, label)
     val f = Future.traverse[StorageProvider, (ProviderId, Status), Set](getProvidersForLabel(label))(_.writeIfNotStarted(ad, data))
       .map { (s) => s.toMap}
@@ -95,4 +96,6 @@ case class LocalStorageDao(storageConfig: LocalStorageConfig) extends StorageDao
   override def write(assetDigest: AssetDigest, data: Array[Byte]): Future[Unit] = Future(Files.write(getPath(assetDigest), data))
 
   override def cleanUp(assetDigest: AssetDigest): Future[Unit] = Future(Files.deleteIfExists(getPath(assetDigest))).map(_ => ())
+
+  override def exists(assetDigest: AssetDigest): Future[Boolean] = Future(Files.exists(getPath(assetDigest)))
 }

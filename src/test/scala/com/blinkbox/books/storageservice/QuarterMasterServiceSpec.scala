@@ -36,6 +36,7 @@ import spray.util.NotImplementedException
 import scala.concurrent.Future
 import scala.util.Random
 import org.json4s.JsonDSL._
+import scala.util.matching.Regex
 
 @RunWith(classOf[JUnitRunner])
 class QuarterMasterSpecification extends Configuration with FlatSpecLike with ScalatestRouteTest
@@ -221,7 +222,6 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
      }
   }
 
-
   def genProvidersLabelAndMapping = for {
     successfulProviders <- Gen.nonEmptyListOf(genSuccessfulProvider)
     failingProviders    <- Gen.listOf(genFailingProvider)
@@ -256,32 +256,35 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
           val matchingSuccessfulProviders = matchingProviders.filter(_.providerId.name.startsWith("Successful"))
           val matchingSuccessfulDaos = matchingSuccessfulProviders.map(_.dao)
         w{
-        val f = callAccepted.flatMap(_._2)
+           val f = callAccepted.flatMap(_._2)
            if (matchingProviders.size < 1) {
-             whenReady(f.failed, timeout ) {
-                                   e => e shouldBe a [NotImplementedException]
-                                     w.dismiss()
-                                 }
+             whenReady(f.failed, timeout) {
+                e => e shouldBe a[NotImplementedException]
+                w.dismiss()
+             }
            } else
            if (data.size < 1) {
              whenReady(f.failed, timeout) {
-                                   e => e shouldBe a [IllegalArgumentException]
-                                     w.dismiss()
-                                 }
-           } else
-        whenReady(f,timeout)((s) =>  {
-          val assetDigest = callAccepted.futureValue._1
-          val matchingFailingDaos = matchingProviders.filter(_.providerId.name.startsWith("Failing")).map(_.dao)
-          matchingSuccessfulDaos.map(verify(_, times(1)).write(eql(assetDigest), aryEq(data)))
-          matchingSuccessfulDaos.map(verify(_, never).cleanUp(any[AssetDigest]))
-          matchingFailingDaos.map(verify(_, times(1)).write(eql(assetDigest), aryEq(data)))
-          matchingFailingDaos.map(verify(_, times(1)).cleanUp(any[AssetDigest]))
-          w.dismiss()
-        })}
+                e => e shouldBe a[IllegalArgumentException]
+                w.dismiss()
+             }
+           }
+           else
+             whenReady(f, timeout)((s) => {
+                val assetDigest = callAccepted.futureValue._1
+                val matchingFailingDaos = matchingProviders.filter(_.providerId.name.startsWith("Failing")).map(_.dao)
+                matchingSuccessfulDaos.map(verify(_, times(1)).write(eql(assetDigest), aryEq(data)))
+                matchingSuccessfulDaos.map(verify(_, never).cleanUp(any[AssetDigest]))
+                matchingFailingDaos.map(verify(_, times(1)).write(eql(assetDigest), aryEq(data)))
+                matchingFailingDaos.map(verify(_, times(1)).cleanUp(any[AssetDigest]))
+                w.dismiss()
+             })
+         }
         w.await()
       }
     }
   }
+
   it should "connect to the correct mappings" in  {
      val mappingRef = new AtomicReference[Mapping]
      mappingRef.set(initMapping)
@@ -290,7 +293,6 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
      val mockStorageManager  = MockitoSugar.mock[StorageManager]
      when(mockStorageManager.mapping).thenReturn(mappingRef)
      val qms = new QuarterMasterService(appConfig, mockSender, mockStorageManager, mockMappingHelper)
-
      val router = new QuarterMasterRoutes(qms, createActorSystem())
      def routes = router.routes
      Get("/mappings") ~> routes ~> check {
@@ -314,4 +316,18 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
      }
   }
 
+
+  it should " be able to parse regex" in {
+    val nonEmptyAlphaNumeric  = Gen.nonEmptyListOf(Gen.alphaNumChar).map(_.mkString)
+                                //.suchThat(_.forall(_.isLetter))
+    forAll(nonEmptyAlphaNumeric,nonEmptyAlphaNumeric, Gen.chooseNum(1,3))
+    {
+      (urlHead, urlTail, groupNum) =>
+        val digest = AssetDigest(s"bbbmap:$urlHead:$urlTail")
+        val regex = "(.*):(.*):(.*)"
+        val template = UrlTemplate(ProviderId("dummy"), Label("dummy"), """theNewUrlIs://\'"""+groupNum+"""'""", regex)
+        val result = new Regex(regex).findFirstMatchIn(digest.url).map(m => """theNewUrlIs://"""+m.group(groupNum))
+        template.createUrlFrom(digest) shouldEqual result
+      }
+  }
 }
