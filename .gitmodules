@@ -7,3 +7,6 @@
 [submodule "schemas"]
 	path = schemas
 	url = git@git.mobcastdev.com:Hermes/schemas.git
+[submodule "src/main/resources/schemas"]
+	path = src/main/resources/schemas
+	url = git@git.mobcastdev.com:Hermes/schemas.git

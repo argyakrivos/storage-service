@@ -7,6 +7,8 @@ version := scala.util.Try(scala.io.Source.fromFile("VERSION").mkString.trim).get
 //testOptions in Test += Tests.Argument("-oDF")
 
 scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf8", "-target:jvm-1.7")
+
+resolvers += "Maven Central" at "https://repo1.maven.org/maven2/"
  
 libraryDependencies ++= {
   val akkaV = "2.3.6"
@@ -22,7 +24,8 @@ libraryDependencies ++= {
     "com.blinkbox.books"        %% "common-spray"       % "0.18.0",
     "com.blinkbox.books"        %% "common-spray-auth"  % "0.7.4",
     "com.blinkbox.books.hermes" %% "rabbitmq-ha"        % "7.1.0",
-    "org.scalacheck"            %% "scalacheck"         % "1.11.5"  % Test
+    "org.scalacheck"            %% "scalacheck"         % "1.11.5"  % Test,
+    "com.github.fge"            % "json-schema-validator" % "2.2.6" % Test
   )
 }
 

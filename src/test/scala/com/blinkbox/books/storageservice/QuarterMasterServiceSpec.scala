@@ -7,6 +7,10 @@ import com.blinkbox.books.config.{ApiConfig, Configuration}
 import com.blinkbox.books.json.DefaultFormats
 import com.blinkbox.books.rabbitmq.RabbitMqConfig
 import com.fasterxml.jackson.core.JsonProcessingException
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.github.fge.jackson.JsonLoader
+import com.github.fge.jsonschema.examples.Utils
+import com.github.fge.jsonschema.main.JsonSchemaFactory
 import com.typesafe.config.Config
 import org.json4s.jackson.JsonMethods._
 import org.json4s.{FieldSerializer, JValue}
@@ -167,9 +171,15 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
 
 
    "the quartermaster service " should " send json representation of the mapping file " in {
-       val result = MappingHelper(MockitoSugar.mock[MappingLoader]).toJson(Mapping(List(ProviderConfig("azureEpubLabel", "bbbmap(.*)", Map("azureProvider" -> "myTemplate")))))
-       result shouldEqual """[{"label":"azureEpubLabel","extractor":"bbbmap(.*)","providers":{"azureProvider":"myTemplate"}}]"""
-   }
+     val schemaJson  = JsonLoader.fromResource("/schemas/mapping/update/v1.schema.json")
+     val factory = JsonSchemaFactory.byDefault
+     val mapper = new ObjectMapper
+     val jsonSchema = factory.getJsonSchema(schemaJson)
+     forAll(nonEmptyAlphaNumeric, nonEmptyAlphaNumeric, nonEmptyAlphaNumeric, nonEmptyAlphaNumeric) { (label, extractor, providerId, template) => {
+     val result = MappingHelper(MockitoSugar.mock[MappingLoader]).toJson(Mapping(List(ProviderConfig(label, extractor, Map(providerId -> template)))))
+       result shouldEqual s"""[{\"label\":\"$label\",\"extractor\":\"$extractor\",\"providers\":{\"$providerId\":\"$template\"}}]"""
+      jsonSchema.validInstance(mapper.readTree(result)) shouldBe true
+   }}}
 
  "The quarterMasterService" should " update the mapping file " in {
    forAll(mappingGen, mappingGen2) { (oldMapping, newMapping) => {
@@ -231,7 +241,6 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
        when(mockMappingLoader.load(any[String])).thenReturn(loadStr)
        val qms = new QuarterMasterService(appConfig, mockSender, storageManager, mappingHelper)
        val f = qms.loadMapping
-       println(loaded)
        whenReady(f, Timeout(Span(50, Seconds)) )((s) => {
          s shouldEqual loadStr
        })
@@ -331,19 +340,4 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
       mediaType.toString == "application/vnd.blinkbox.books.mapping.update.v1+json"
     }
  }
-
-
- // it should " be able to parse regex" in {
-
- //                               //.suchThat(_.forall(_.isLetter))
- //   forAll(nonEmptyAlphaNumeric,nonEmptyAlphaNumeric, Gen.chooseNum(1,3))
- //   {
- //     (urlHead, urlTail, groupNum) =>
- //       val digest = AssetDigest(s"bbbmap:$urlHead:$urlTail")
- //       val regex = "(.*):(.*):(.*)"
- //       val template = ProviderConfig(Map("dummyProviderId" ->( """theNewUrlIs://\'"""+groupNum+"'")) , Label("dummyTemplate"), regex)
- //       val result = new Regex(regex).findFirstMatchIn(digest.url).map(m => """theNewUrlIs://"""+m.group(groupNum))
- //       template.createUrlFrom(digest) shouldEqual result
- //     }
- // }
 }
