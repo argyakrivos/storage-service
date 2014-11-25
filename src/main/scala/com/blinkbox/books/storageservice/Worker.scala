@@ -14,11 +14,11 @@ import scala.concurrent.Future
 
 case class ProviderId(name: String)
 
-case class JobId(providerId: ProviderId, assetDigest: AssetDigest)
+case class JobId(providerId: String, assetDigest: AssetDigest)
 
 abstract class StorageDao {
   val storageConfig:NamedStorageConfig
-  val providerId: ProviderId = storageConfig.providerId
+  val providerId = storageConfig.providerId
 
   def write(assetDigest: AssetDigest, data: Array[Byte]): Future[Unit]
   def cleanUp(assetDigest: AssetDigest): Future[Unit]
@@ -32,7 +32,7 @@ case class StorageProvider(repo: StorageProviderRepo,  dao: StorageDao) {
     case _ => false
   }
 
-  def writeIfNotStarted(assetDigest: AssetDigest, data: Array[Byte]): Future[(ProviderId, Status)] = {
+  def writeIfNotStarted(assetDigest: AssetDigest, data: Array[Byte]): Future[(String, Status)] = {
     val jobId = JobId(providerId, assetDigest)
     repo.getStatus(jobId).flatMap(status => isAssetWritable(status) match {
       case true => write(assetDigest, data).recoverWith({ case e => cleanUp(assetDigest)})
@@ -40,7 +40,7 @@ case class StorageProvider(repo: StorageProviderRepo,  dao: StorageDao) {
     })
   }
 
-  def write(assetDigest: AssetDigest, data: Array[Byte]): Future[(ProviderId, Status)] = {
+  def write(assetDigest: AssetDigest, data: Array[Byte]): Future[(String, Status)] = {
     val numBytes = data.length
     val started = DateTime.now
     val jobId = JobId(providerId, assetDigest)
@@ -51,7 +51,7 @@ case class StorageProvider(repo: StorageProviderRepo,  dao: StorageDao) {
     } yield (providerId, Status.finished)
   }
 
-  def cleanUp(assetDigest: AssetDigest): Future[(ProviderId, Status)] =
+  def cleanUp(assetDigest: AssetDigest): Future[(String, Status)] =
     for {
       _ <- dao.cleanUp(assetDigest)
       _ <- repo.removeProgress(JobId(providerId, assetDigest))
@@ -61,32 +61,33 @@ case class StorageProvider(repo: StorageProviderRepo,  dao: StorageDao) {
  case class StorageManager(repo: StorageProviderRepo, initMapping: Mapping, storageProviders:Set[StorageProvider]) {
    val mapping= new AtomicReference(initMapping)
 
-   def getProvidersFor(fn:(UrlTemplate)=>Boolean):Set[StorageProvider] = (for {
-     template <- mapping.get.templates
+   def getProvidersFor(fn:(ProviderConfig)=>Boolean):Set[StorageProvider] = (for {
+     template <- mapping.get.providers
      if fn(template)
      storageProvider <- storageProviders
-     if storageProvider.providerId == template.providerId
+     providerIdTemplate <- template.providers
+     if storageProvider.providerId == providerIdTemplate._1
    } yield storageProvider).toSet
 
-    def getProvidersForLabel(label: Label):Set[StorageProvider] = getProvidersFor(_.label == label)
+    def getProvidersForLabel(label: String):Set[StorageProvider] = getProvidersFor(_.label == label)
     def getProvidersForDigest(digest: AssetDigest):Set[StorageProvider] = getProvidersFor(_.matches(digest))
 
-    def storeAsset(label: Label, data: Array[Byte]): (AssetDigest, Future[Map[ProviderId, Status]]) = {
+    def storeAsset(label: String, data: Array[Byte]): (AssetDigest, Future[Map[String, Status]]) = {
     val ad = GenAssetDigest(data, label)
-    val f = Future.traverse[StorageProvider, (ProviderId, Status), Set](getProvidersForLabel(label))(_.writeIfNotStarted(ad, data))
+    val f = Future.traverse[StorageProvider, (String, Status), Set](getProvidersForLabel(label))(_.writeIfNotStarted(ad, data))
       .map { (s) => s.toMap}
     (ad,f)
   }
 
-  def getStatus(assetDigest: AssetDigest): Future[Map[ProviderId, Status]] =
+  def getStatus(assetDigest: AssetDigest): Future[Map[String, Status]] =
     Future.traverse(getProvidersForDigest(assetDigest))((dt) =>
       repo.getStatus(JobId(dt.providerId, assetDigest)).map((dt.providerId, _))).map(_.toMap)
 
-  def getProgress(assetDigest: AssetDigest): Future[Map[ProviderId, Option[Progress]]] =
+  def getProgress(assetDigest: AssetDigest): Future[Map[String, Option[Progress]]] =
     Future.traverse(getProvidersForDigest(assetDigest))((dt) =>
       repo.getProgress(JobId(dt.providerId, assetDigest)).map((dt.providerId, _))).map(_.toMap)
 
-  def cleanUp(assetDigest: AssetDigest): Future[Set[(ProviderId, Status)]] =
+  def cleanUp(assetDigest: AssetDigest): Future[Set[(String, Status)]] =
     Future.traverse(getProvidersForDigest(assetDigest))(_.cleanUp(assetDigest))
 }
 

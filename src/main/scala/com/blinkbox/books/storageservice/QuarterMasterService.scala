@@ -10,7 +10,7 @@ import com.blinkbox.books.messaging.{Event, JsonEventBody, MediaType}
 import com.blinkbox.books.rabbitmq.RabbitMqConfirmedPublisher.PublisherConfiguration
 import com.blinkbox.books.rabbitmq.{RabbitMq, RabbitMqConfirmedPublisher}
 import com.blinkbox.books.spray.{v2, Directives => CommonDirectives}
-import org.json4s.FieldSerializer
+import org.json4s.{Extraction, FieldSerializer}
 import org.json4s.jackson.JsonMethods
 import org.json4s.jackson.Serialization._
 import org.slf4j.LoggerFactory
@@ -25,10 +25,12 @@ import scala.util.control.NonFatal
 import scala.util.matching.Regex
 
 case class UserId(id: String)
-case class Label(label:String){
-}
+case class LocationTemplate(template:String)
 case class AssetData(timeStarted: DateTime, totalSize: Long)
-case class UrlTemplate(providerId:ProviderId, label:Label, template:String, extractor: String) {
+case class ProviderPair(id:ProviderId,template:LocationTemplate)
+
+case class ProviderConfig(label: String, extractor: String, providers: Map[String, String]) {
+  implicit val formats = DefaultFormats + FieldSerializer[ProviderConfig]() + FieldSerializer[ProviderId]() + FieldSerializer[LocationTemplate]()
   val regex = new Regex(extractor)
   def matches(digest: AssetDigest): Boolean = regex.findFirstMatchIn(digest.url).isDefined
 
@@ -38,30 +40,28 @@ case class UrlTemplate(providerId:ProviderId, label:Label, template:String, extr
     }
   }
 
-  def createUrlFrom(digest:AssetDigest):Option[String] =
-    for {
-      firstMatch <- regex.findFirstMatchIn(digest.url)
-    } yield firstMatch.subgroups.view.zipWithIndex.foldLeft(template)(getFullUrl)
+//  def createUrlFrom(digest:AssetDigest):Option[String] =
+//    for {
+//      firstMatch <- regex.findFirstMatchIn(digest.url)
+//    } yield firstMatch.subgroups.view.zipWithIndex.foldLeft(template)(getFullUrl)
 
-  implicit val formats = DefaultFormats + FieldSerializer[UrlTemplate]()
 }
 
 case class AssetDigest(url:String) {
   val re = """bbbmap:(\w+):(\S+)""".r
-  val re(l, sha1) = url
-  val label2 = Label(l)
+  val re(label, sha1) = url
   def toFileString(): String = url
 }
 
 object GenAssetDigest{
-  def apply(data: Array[Byte], label:Label): AssetDigest = {
+  def apply(data: Array[Byte], label:String): AssetDigest = {
     val md = java.security.MessageDigest.getInstance("SHA-1")
-    val labelString = label.label
+    val labelString = label
     val sha1 = new sun.misc.BASE64Encoder().encode(md.digest(data))
     AssetDigest(s"bbbmap:$labelString:$sha1")
   }
 }
-case class Mapping(templates: List[UrlTemplate])
+case class Mapping(providers: List[ProviderConfig])
 
 trait MappingLoader {
   def load(path: String): String
@@ -84,11 +84,13 @@ case class MappingHelper(loader: MappingLoader) extends JsonMethods with v2.Json
   val templatesName = "templates"
 
   def fromJsonStr(jsonString: String): Mapping = {
-    val m = read[Option[Mapping]](jsonString)
+    val m = read[Option[List[ProviderConfig]]](jsonString).map(Mapping)
     m.getOrElse(throw new IllegalArgumentException(s"cant parse jsonString: $jsonString"))
   }
 
-  def toJson(m: Mapping): String = write[Mapping](m)
+  def toJsonStr(m:Mapping):String = write[Mapping](m)
+
+  def toJson(m: Mapping): String = compact(render(Extraction.decompose(m.providers)))
 
   def store(mappingPath: String, mapping: Mapping): Future[Unit] =
     Future(loader.write(mappingPath, toJson(mapping)))
@@ -116,10 +118,10 @@ case class QuarterMasterService(appConfig: AppConfig,  messageSender: MessageSen
 
   val log = LoggerFactory.getLogger(classOf[QuarterMasterRoutes])
 
-  def cleanUp(assetDigest: AssetDigest): Future[Map[ProviderId, Status]] =
+  def cleanUp(assetDigest: AssetDigest): Future[Map[String, Status]] =
     storageManager.cleanUp(assetDigest).map(_.toMap)
 
-  def storeAsset(bytes: Array[Byte], label: Label): Future[(AssetDigest, Future[Map[ProviderId, Status]])] = Future {
+  def storeAsset(bytes: Array[Byte], label: String): Future[(AssetDigest, Future[Map[String, Status]])] = Future {
     if (storageManager.getProvidersForLabel(label).size < appConfig.mapping.minStorageProviders) {
       throw new NotImplementedException(s"label $label is has no available storage providers")
     }
@@ -129,7 +131,7 @@ case class QuarterMasterService(appConfig: AppConfig,  messageSender: MessageSen
     storageManager.storeAsset(label, bytes)
   }
 
-  def getStatus(assetDigest: AssetDigest): Future[Map[ProviderId, Status]] =
+  def getStatus(assetDigest: AssetDigest): Future[Map[String, Status]] =
     storageManager.getStatus(assetDigest)
 
   def updateAndBroadcastMapping(mappingStr: String): Future[String] ={

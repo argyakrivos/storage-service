@@ -57,7 +57,7 @@ case class QuarterMasterRoutes(qms: QuarterMasterService, actorRefFactory: Actor
           val result = for {
             data <- dataRight.right
             label <- labelRight.right
-          } yield qms.storeAsset(data, Label(label)).map[AssetDigest](_._1)
+          } yield qms.storeAsset(data, label).map[AssetDigest](_._1)
           result match {
             case Right(result) => complete(StatusCodes.Accepted, result)
             case _ => complete(StatusCodes.InternalServerError)

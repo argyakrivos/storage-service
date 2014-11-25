@@ -37,9 +37,9 @@ case class LocalStorageConfig(config: Config) extends NamedStorageConfig {
   val localStorageLabels = config.getIntList("service.qm.storage.providers.local.localStorageLabels").asScala.toSet.map(Integer2int(_: Integer))
   val localStoragePath = config.getString("service.qm.storage.providers.local.localStoragePath")
   val localPath = config.getString("service.qm.storage.providers.local.localPath")
-  val providerId = ProviderId(config.getString("service.qm.storage.providers.local.providerId"))
+  val providerId = config.getString("service.qm.storage.providers.local.providerId")
 }
 
 trait NamedStorageConfig  {
-  val providerId:ProviderId
+  val providerId:String
 }
