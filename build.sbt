@@ -8,6 +8,8 @@ version := scala.util.Try(scala.io.Source.fromFile("VERSION").mkString.trim).get
 
 scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf8", "-target:jvm-1.7")
 
+unmanagedResourceDirectories in Test += baseDirectory.value / "schemas"
+
 resolvers += "Maven Central" at "https://repo1.maven.org/maven2/"
  
 libraryDependencies ++= {
