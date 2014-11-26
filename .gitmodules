@@ -4,6 +4,4 @@
 [submodule "rpm"]
 	path = rpm
 	url = git@git.mobcastdev.com:ITOPS/specs.fatjar.git
-[submodule "schemas"]
-	path = schemas
-	url = git@git.mobcastdev.com:Hermes/schemas.git
+
