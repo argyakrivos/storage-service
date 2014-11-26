@@ -4,14 +4,12 @@ scalaVersion := "2.11.4"
  
 version := scala.util.Try(scala.io.Source.fromFile("VERSION").mkString.trim).getOrElse("0.0.0")
 
-//testOptions in Test += Tests.Argument("-oDF")
+testOptions in Test += Tests.Argument("-oDF")
 
 scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf8", "-target:jvm-1.7")
 
 unmanagedResourceDirectories in Test += baseDirectory.value / "schemas"
 
-resolvers += "Maven Central" at "https://repo1.maven.org/maven2/"
- 
 libraryDependencies ++= {
   val akkaV = "2.3.6"
   val sprayV = "1.3.1"

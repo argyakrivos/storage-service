@@ -4,18 +4,14 @@ import java.util.concurrent.TimeUnit
 
 import akka.actor.ActorRefFactory
 import akka.util.Timeout
-import com.blinkbox.books
-import com.blinkbox.books.config
 import com.blinkbox.books.config.ApiConfig
 import com.blinkbox.books.messaging.EventHeader
 import com.blinkbox.books.rabbitmq.RabbitMqConfig
 import com.typesafe.config.Config
-import spray.http.Uri.Path
-
 import scala.collection.JavaConverters._
 import scala.collection.immutable.Set
 
-case class AppConfig(mapping: MappingConfig, rabbitmq: RabbitMqConfig, storage:Set[Config], api: ApiConfig)
+case class AppConfig(mapping: MappingConfig, rabbit: RabbitMqConfig, storage:Set[Config], api: ApiConfig)
 case class MappingConfig(path: String, sender: Config, eventHeader: EventHeader, minStorageProviders: Int)
 
 object MappingConfig {
