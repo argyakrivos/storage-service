@@ -6,7 +6,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 
 case class Status(eta: DateTime, available: Boolean, percentComplete:Double)
-case class Progress(assetData: AssetData, sizeWritten: Long){
+case class Progress(assetData: AssetData, sizeWritten: Long) {
   val isDone = sizeWritten >= assetData.totalSize
 }
 
@@ -21,7 +21,7 @@ object Status extends Ordering[Status] {
   def getStatus(progress: List[Progress], name: ProviderId): Status = progress.foldRight[Status](failed)(earlierStatus)
 
   def earlierStatus(latestProgress: Progress, earliestStatus: Status): Status =
-      min(earliestStatus, Status(latestProgress))
+    min(earliestStatus, Status(latestProgress))
 
   def apply(progress: Progress): Status = {
     val now = DateTime.now
@@ -55,5 +55,5 @@ class InMemoryRepo extends StorageProviderRepo {
   override def getStatus(jobId: JobId) = Future(repo.get(jobId).map(Status.apply).getOrElse(Status.notFound))
   override def removeProgress(jobId: JobId) = Future(repo.remove(jobId))
   override def updateProgress(jobId: JobId, size: Long, started: DateTime, bytesWritten: Long) =
-      Future(repo.putIfAbsent(jobId, new Progress(new AssetData(started, size), bytesWritten)))
+    Future(repo.putIfAbsent(jobId, new Progress(new AssetData(started, size), bytesWritten)))
 }

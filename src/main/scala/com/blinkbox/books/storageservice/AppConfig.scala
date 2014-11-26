@@ -15,12 +15,13 @@ case class AppConfig(mapping: MappingConfig, rabbit: RabbitMqConfig, storage:Set
 case class MappingConfig(path: String, sender: Config, eventHeader: EventHeader, minStorageProviders: Int)
 
 object MappingConfig {
-  def apply(config: Config) = new MappingConfig(
-    config.getString("service.qm.mappingPath"),
-    config.getConfig("service.qm.sender"),
-    EventHeader(config.getString("service.qm.sender.eventHeader")),
-    config.getInt("service.qm.storage.minStorageProviders")
-  )}
+  def apply(config: Config) =
+    new MappingConfig(
+      config.getString("service.qm.mappingPath"),
+      config.getConfig("service.qm.sender"),
+      EventHeader(config.getString("service.qm.sender.eventHeader")),
+      config.getInt("service.qm.storage.minStorageProviders"))
+}
 
 object AppConfig {
   implicit val timeout = Timeout(50L, TimeUnit.SECONDS)
@@ -30,12 +31,12 @@ object AppConfig {
 }
 
 case class LocalStorageConfig(config: Config) extends NamedStorageConfig {
-  val localStorageLabels = config.getIntList("service.qm.storage.providers.local.localStorageLabels").asScala.toSet.map(Integer2int(_: Integer))
-  val localStoragePath = config.getString("service.qm.storage.providers.local.localStoragePath")
-  val localPath = config.getString("service.qm.storage.providers.local.localPath")
-  val providerId = config.getString("service.qm.storage.providers.local.providerId")
+  val storagePath = config.getString("service.qm.storage.providers.local.storagePath")
+  val providerId = config.getString("service.qm.storage.providers.local.id")
 }
 
 trait NamedStorageConfig  {
   val providerId:String
 }
+
+

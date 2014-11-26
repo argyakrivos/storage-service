@@ -6,9 +6,10 @@ import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
 import com.blinkbox.books.logging.DiagnosticExecutionContext
 import com.blinkbox.books.spray.{ HealthCheckHttpService, HttpServer, v2, Directives => CommonDirectives }
-import com.typesafe.scalalogging.slf4j.StrictLogging
+import com.typesafe.scalalogging.StrictLogging
+import org.json4s.`package`.MappingException
 import org.json4s.jackson.Serialization
-import org.json4s.{ FieldSerializer, MappingException }
+import org.json4s.FieldSerializer
 import org.slf4j.LoggerFactory
 import spray.can.Http
 import spray.http.StatusCodes._
@@ -25,102 +26,98 @@ import scala.util.control.NonFatal
 
 case class QuarterMasterRoutes(qms: QuarterMasterService, actorRefFactory: ActorRefFactory) extends HttpService
   with CommonDirectives with BasicUnmarshallers with v2.JsonSupport {
-  val log = LoggerFactory.getLogger(classOf[QuarterMasterRoutes])
-  val mappingUri = "mappings"
-  val refreshUri = "refresh"
-  val resourcesUri = "resources"
-  val appConfig = qms.appConfig
-  val mappingRoute = path(mappingUri) {
+    val log = LoggerFactory.getLogger(classOf[QuarterMasterRoutes])
+    val mappingUri = "mappings"
+    val refreshUri = "refresh"
+    val resourcesUri = "resources"
+    val appConfig = qms.appConfig
+    val mappingRoute = path(mappingUri) {
 
-  implicit val timeout = AppConfig.timeout
-    get {
-      complete(StatusCodes.OK, qms.mappingHelper.toJson(qms.storageManager.mapping.get))
+    implicit val timeout = AppConfig.timeout
+      get {
+        complete(StatusCodes.OK, qms.mappingHelper.toJson(qms.storageManager.mapping.get))
+      }
     }
-  }
-  
-  val storeAssetRoute = {
-    implicit val formUnmarshaller = FormDataUnmarshallers.MultipartFormDataUnmarshaller
-    implicit def textUnmarshaller[T: Manifest] =
-      Unmarshaller[T](MediaTypes.`text/plain`) {
-        case x: HttpEntity.NonEmpty =>
-          try Serialization.read[T](x.asString(defaultCharset = HttpCharsets.`UTF-8`))
-          catch {
-            case MappingException("unknown error", ite: InvocationTargetException) => throw ite.getCause
+
+    val storeAssetRoute = {
+      implicit val formUnmarshaller = FormDataUnmarshallers.MultipartFormDataUnmarshaller
+      implicit def textUnmarshaller[T: Manifest] =
+        Unmarshaller[T](MediaTypes.`text/plain`) {
+          case x: HttpEntity.NonEmpty =>
+            try Serialization.read[T](x.asString(defaultCharset = HttpCharsets.`UTF-8`))
+            catch {
+              case MappingException("unknown error", ite: InvocationTargetException) => throw ite.getCause
+            }
+        }
+      path(resourcesUri) {
+        post {
+          entity(as[MultipartFormData]) { (form) =>
+            val dataRight = new MultipartFormField("data", form.get("data")).as[Array[Byte]]
+            val labelRight = new MultipartFormField("label", form.get("label")).as[String]
+            val result = for {
+              data <- dataRight.right
+              label <- labelRight.right
+            } yield qms.storeAsset(data, label).map[AssetDigest](_._1)
+            result match {
+              case Right(result) => complete(StatusCodes.Accepted, result)
+              case _ => complete(StatusCodes.InternalServerError)
+            }
           }
+        }
       }
-    path(resourcesUri) {
-      post {
-        entity(as[MultipartFormData]) { (form) =>
-          val dataRight = new MultipartFormField("data", form.get("data")).as[Array[Byte]]
-          val labelRight = new MultipartFormField("label", form.get("label")).as[String]
-          val result = for {
-            data <- dataRight.right
-            label <- labelRight.right
-          } yield qms.storeAsset(data, label).map[AssetDigest](_._1)
-          result match {
-            case Right(result) => complete(StatusCodes.Accepted, result)
-            case _ => complete(StatusCodes.InternalServerError)
+    }
+
+    val assetUploadStatus =
+      get {
+        implicit val formats = DefaultFormats + FieldSerializer[AssetDigest]()
+        path(resourcesUri / Segment).as(AssetDigest) {
+          assetDigest => complete(StatusCodes.OK, qms.getStatus(assetDigest))
+        }
+      }
+
+    val updateMappingRoute =
+      path(mappingUri) {
+        post {
+          parameters('mappingJson) {
+            (mappingString) => complete(StatusCodes.Accepted, qms.updateAndBroadcastMapping(mappingString))
           }
         }
       }
-    }
-  }
 
-  val assetUploadStatus =
-    get {
-      implicit val formats = DefaultFormats + FieldSerializer[AssetDigest]()
-      path(resourcesUri / Segment).as(AssetDigest) {
-        assetDigest => complete(StatusCodes.OK, qms.getStatus(assetDigest))
-      }
+    val reloadMappingRoute =
+      path(mappingUri / refreshUri) {
+        put {
+          complete(StatusCodes.OK, qms.loadMapping)
+        }
     }
 
-  val updateMappingRoute =
-    path(mappingUri) {
-      post {
-        parameters('mappingJson) {
-          (mappingString) => complete(StatusCodes.Accepted, qms.updateAndBroadcastMapping(mappingString))
+    private def exceptionHandler(implicit log: LoggingContext) = ExceptionHandler {
+      case e: NotImplementedException =>
+        log.error(e, "Unhandled error")
+        uncacheable(BadRequest, "code: Bad Data")
+      case e: IllegalArgumentException =>
+        log.error(e, "Unhandled error")
+        uncacheable(BadRequest, "code: UnknownLabel")
+    }
+    val routes = {
+      handleExceptions(exceptionHandler) {
+        neverCache {
+          rootPath(Path("/")) {
+            mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ storeAssetRoute
+          }
         }
       }
-    }
-
-  val reloadMappingRoute = path(mappingUri / refreshUri) {
-    put {
-      complete(StatusCodes.OK, qms.loadMapping)
-    }
-  }
-
-  private def exceptionHandler(implicit log: LoggingContext) = ExceptionHandler {
-    case e: NotImplementedException =>
-      log.error(e, "Unhandled error")
-      uncacheable(BadRequest, "code: Bad Data")
-    case e: IllegalArgumentException =>
-      log.error(e, "Unhandled error")
-      uncacheable(BadRequest, "code: UnknownLabel")
-  }
-  val routes = {
-    handleExceptions(exceptionHandler) {
-      neverCache {
-        rootPath(Path("/")) {
-          mappingRoute ~ reloadMappingRoute ~ updateMappingRoute ~ storeAssetRoute
-        }
-      }
-    }
-  }
-}
-
-case class HealthService(arf: ActorRefFactory) {
-  val healthService =
-    new HealthCheckHttpService {
-      override implicit def actorRefFactory = arf
-      override val basePath = Path("/")
     }
 }
 
 class WebService(config: AppConfig, qms: QuarterMasterService) extends HttpServiceActor {
   implicit val executionContext = DiagnosticExecutionContext(actorRefFactory.dispatcher)
-  val healthServiceRoute = HealthService(actorRefFactory)
+  val healthService = new HealthCheckHttpService {
+    override implicit def actorRefFactory = WebService.this.actorRefFactory
+    override val basePath = Path./
+  }
   val routes = new QuarterMasterRoutes(qms, actorRefFactory)
-  override def receive: Actor.Receive = runRoute(routes.routes ~ healthServiceRoute.healthService.routes)
+  override def receive: Actor.Receive = runRoute(routes.routes ~ healthService.routes)
 }
 
 object Boot extends App with Configuration with StrictLogging {
@@ -134,7 +131,7 @@ object Boot extends App with Configuration with StrictLogging {
     val messageSender = new MessageSender(appConfig, system)
     val repo = new InMemoryRepo
     val localStorageDao = LocalStorageDao(LocalStorageConfig(appConfig.storage.head))
-    val provider: StorageProvider = StorageProvider(repo, localStorageDao)
+    val provider = StorageProvider(repo, localStorageDao)
     val storageManager = StorageManager(repo, initMapping, Set(provider))
     val service = QuarterMasterService(appConfig, messageSender, storageManager, MappingHelper(new FileMappingLoader))
     val webService = system.actorOf(Props(classOf[WebService], appConfig, service), "storage-service")
