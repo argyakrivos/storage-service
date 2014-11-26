@@ -16,7 +16,7 @@ object Status extends Ordering[Status] {
   val notFound = new Status(DateTime.MinValue, false,0)
   val finished = new Status(DateTime.MinValue, true, 100)
 
-  override def compare(thisStatus: Status, thatStatus: Status): Int = thisStatus.eta.clicks compare thatStatus.eta.clicks
+  override def compare(firstStatus: Status, secondStatus: Status): Int = firstStatus.eta.clicks compare secondStatus.eta.clicks
 
   def getStatus(progress: List[Progress], name: ProviderId): Status = progress.foldRight[Status](failed)(earlierStatus)
 
