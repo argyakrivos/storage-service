@@ -23,10 +23,10 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
 import scala.util.Right
 import scala.util.control.NonFatal
+import com.typesafe.scalalogging.StrictLogging
 
 case class QuarterMasterRoutes(qms: QuarterMasterService, actorRefFactory: ActorRefFactory) extends HttpService
-  with CommonDirectives with BasicUnmarshallers with v2.JsonSupport {
-    val log = LoggerFactory.getLogger(classOf[QuarterMasterRoutes])
+  with CommonDirectives with BasicUnmarshallers with v2.JsonSupport with StrictLogging {
     val mappingUri = "mappings"
     val refreshUri = "refresh"
     val resourcesUri = "resources"
@@ -91,13 +91,13 @@ case class QuarterMasterRoutes(qms: QuarterMasterService, actorRefFactory: Actor
         }
     }
 
-    private def exceptionHandler(implicit log: LoggingContext) = ExceptionHandler {
+    private def exceptionHandler = ExceptionHandler {
       case e: NotImplementedException =>
-        log.error(e, "Unhandled error")
-        uncacheable(BadRequest, "code: Bad Data")
-      case e: IllegalArgumentException =>
-        log.error(e, "Unhandled error")
+        logger.warn("Unhandled error, no Storage Providers Found", e)
         uncacheable(BadRequest, "code: UnknownLabel")
+      case e: IllegalArgumentException =>
+        logger.warn("Unhandled error:  Bad Request", e)
+        uncacheable(BadRequest, "code: Bad Request")
     }
     val routes = {
       handleExceptions(exceptionHandler) {

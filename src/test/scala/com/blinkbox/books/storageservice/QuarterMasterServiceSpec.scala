@@ -268,26 +268,26 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
        val matchingSuccessfulDaos = matchingSuccessfulProviders.map(_.dao)
        waiter {
           val eventualMap = callAccepted.flatMap(_._2)
-                if (data.size < 1) {
-                  whenReady(eventualMap.failed, timeout) {
-                    exception => exception shouldBe a[IllegalArgumentException]
-                    waiter.dismiss()
-                  }
-                } else if (matchingProviders.size < 1) {
-                  whenReady(eventualMap.failed, timeout) {
-                    exception => exception shouldBe a[NotImplementedException]
-                    waiter.dismiss()
-                  }
-                } else
-               whenReady(eventualMap, timeout)((s) => {
-                 val assetDigest = callAccepted.futureValue._1
-                 val matchingFailingDaos = matchingProviders.filter(_.providerId.startsWith("Failing")).map(_.dao)
-                 matchingSuccessfulDaos.map(verify(_, times(1)).write(eql(assetDigest), aryEq(data)))
-                 matchingSuccessfulDaos.map(verify(_, never).cleanUp(any[AssetDigest]))
-                 matchingFailingDaos.map(verify(_, times(1)).write(eql(assetDigest), aryEq(data)))
-                 matchingFailingDaos.map(verify(_, times(1)).cleanUp(any[AssetDigest]))
-                 waiter.dismiss()
-               })
+            if (data.size < 1) {
+              whenReady(eventualMap.failed, timeout) {
+                exception => exception shouldBe a[IllegalArgumentException]
+                waiter.dismiss()
+              }
+            } else if (matchingProviders.size < 1) {
+              whenReady(eventualMap.failed, timeout) {
+                exception => exception shouldBe a[NotImplementedException]
+                waiter.dismiss()
+              }
+            } else
+           whenReady(eventualMap, timeout)((s) => {
+             val assetDigest = callAccepted.futureValue._1
+             val matchingFailingDaos = matchingProviders.filter(_.providerId.startsWith("Failing")).map(_.dao)
+             matchingSuccessfulDaos.map(verify(_, times(1)).write(eql(assetDigest), aryEq(data)))
+             matchingSuccessfulDaos.map(verify(_, never).cleanUp(any[AssetDigest]))
+             matchingFailingDaos.map(verify(_, times(1)).write(eql(assetDigest), aryEq(data)))
+             matchingFailingDaos.map(verify(_, times(1)).cleanUp(any[AssetDigest]))
+             waiter.dismiss()
+           })
        }
        waiter.await()
      }
@@ -299,13 +299,13 @@ it should "connect to the correct mappings" in  {
   mappingRef.set(initMapping)
   val mockSender = MockitoSugar.mock[MessageSender]
   val mockMappingHelper = MockitoSugar.mock[MappingHelper]
-  val mockStorageManager  = MockitoSugar.mock[StorageManager]
+  val mockStorageManager = MockitoSugar.mock[StorageManager]
   when(mockStorageManager.mapping).thenReturn(mappingRef)
   val service = new QuarterMasterService(appConfig, mockSender, mockStorageManager, mockMappingHelper)
   val router = new QuarterMasterRoutes(service, createActorSystem())
   def routes = router.routes
   Get("/mappings") ~> routes ~> check {
-    assert(status == OK )
+    assert(status == OK)
     mediaType.toString == "application/vnd.blinkbox.books.mapping.update.v1+json"
   }
 }
@@ -319,7 +319,7 @@ it should "reload the mapping path" in {
   val router = new QuarterMasterRoutes(service,createActorSystem())
   def routes = router.routes
   Put("/mappings/refresh") ~> routes ~> check {
-    assert(status == OK )
+    assert(status == OK)
     mediaType.toString == "application/vnd.blinkbox.books.mapping.update.v1+json"
   }
 }

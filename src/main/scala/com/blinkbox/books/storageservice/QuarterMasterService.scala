@@ -21,6 +21,7 @@ import scala.concurrent.Future
 import scala.io.Source
 import scala.util.control.NonFatal
 import scala.util.matching.Regex
+import com.typesafe.scalalogging.StrictLogging
 
 case class UserId(id: String)
 case class LocationTemplate(template:String)
@@ -33,9 +34,7 @@ case class ProviderConfig(label: String, extractor: String, providers: Map[Strin
   def matches(digest: AssetDigest): Boolean = regex.findFirstMatchIn(digest.url).isDefined
 
   def getFullUrl(accString:String, tuple:(String,Int)):String = tuple match {
-    case  (groupVal, groupNum) => {
-      accString.replaceAll("""\\'""" +(groupNum+1) + """'""", groupVal)
-    }
+    case (groupVal, groupNum) => accString.replaceAll("""\\'""" +(groupNum+1) + """'""", groupVal)
   }
 }
 
@@ -100,8 +99,7 @@ class MessageSender(config: AppConfig, referenceFactory: ActorRefFactory) extend
   def broadcastUpdate(mapping: Mapping): Future[Any] = qSender ? Event.json[Mapping](eventHeader, mapping)
 }
 
-case class QuarterMasterService(appConfig: AppConfig,  messageSender: MessageSender, storageManager: StorageManager, mappingHelper: MappingHelper) {
-  val log = LoggerFactory.getLogger(classOf[QuarterMasterRoutes])
+case class QuarterMasterService(appConfig: AppConfig,  messageSender: MessageSender, storageManager: StorageManager, mappingHelper: MappingHelper) extends StrictLogging {
 
   def cleanUp(assetDigest: AssetDigest): Future[Map[String, Status]] =
     storageManager.cleanUp(assetDigest).map(_.toMap)
@@ -129,7 +127,7 @@ case class QuarterMasterService(appConfig: AppConfig,  messageSender: MessageSen
     } yield mappingHelper.toJson(newMapping)
     storeAndBroadcastFuture.onFailure {
       case NonFatal(e) =>
-        log.error(s"couldnt storeAndBroadcast mapping for $mappingStr",e)
+        logger.error(s"couldnt storeAndBroadcast mapping for $mappingStr",e)
         storageManager.mapping.set(oldMapping)}
     storeAndBroadcastFuture
   }
@@ -142,7 +140,7 @@ case class QuarterMasterService(appConfig: AppConfig,  messageSender: MessageSen
     } yield mappingHelper.toJson(newMapping)
     loadAndSetFuture.onFailure {
       case NonFatal(e) =>
-        log.error("couldnt load mapping",e)
+        logger.error("couldnt load mapping",e)
         storageManager.mapping.set(oldMapping)
     }
     loadAndSetFuture
