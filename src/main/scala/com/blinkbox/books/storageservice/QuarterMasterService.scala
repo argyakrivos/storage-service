@@ -1,52 +1,59 @@
 package com.blinkbox.books.storageservice
 
 import java.io.FileWriter
-import java.util.concurrent.atomic.AtomicReference
-import akka.actor.{ActorRef, ActorRefFactory, Props}
+
+import akka.actor.{ActorRefFactory, Props}
 import akka.pattern.ask
 import com.blinkbox.books.json.DefaultFormats
 import com.blinkbox.books.logging.DiagnosticExecutionContext
-import com.blinkbox.books.messaging.{Event, EventHeader, JsonEventBody, MediaType}
+import com.blinkbox.books.messaging.{Event, JsonEventBody, MediaType}
 import com.blinkbox.books.rabbitmq.RabbitMqConfirmedPublisher.PublisherConfiguration
-import com.blinkbox.books.rabbitmq.{RabbitMq, RabbitMqConfig, RabbitMqConfirmedPublisher}
+import com.blinkbox.books.rabbitmq.{RabbitMq, RabbitMqConfirmedPublisher}
 import com.blinkbox.books.spray.{v2, Directives => CommonDirectives}
-import org.json4s.FieldSerializer
+import org.json4s.{FieldSerializer, Extraction}
 import org.json4s.jackson.JsonMethods
 import org.json4s.jackson.Serialization._
 import org.slf4j.LoggerFactory
 import spray.http.DateTime
 import spray.util.NotImplementedException
-
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.io.Source
 import scala.util.control.NonFatal
+import scala.util.matching.Regex
+import com.typesafe.scalalogging.StrictLogging
 
 case class UserId(id: String)
-case class Label(label:String){
-}
+case class LocationTemplate(template:String)
 case class AssetData(timeStarted: DateTime, totalSize: Long)
-case class UrlTemplate(serviceName: String, template: String) {
-  implicit val formats = DefaultFormats + FieldSerializer[UrlTemplate]()
+case class ProviderPair(id:ProviderId,template:LocationTemplate)
+
+case class ProviderConfig(label: String, extractor: String, providers: Map[String, String]) {
+  implicit val formats = DefaultFormats + FieldSerializer[ProviderConfig]() + FieldSerializer[ProviderId]() + FieldSerializer[LocationTemplate]()
+  val regex = new Regex(extractor)
+  def matches(digest: AssetDigest): Boolean = regex.findFirstMatchIn(digest.url).isDefined
+
+  def getFullUrl(accString:String, tuple:(String,Int)):String = tuple match {
+    case (groupVal, groupNum) => accString.replaceAll("""\\'""" +(groupNum+1) + """'""", groupVal)
+  }
 }
 
 case class AssetDigest(url:String) {
   val re = """bbbmap:(\w+):(\S+)""".r
-  val re(l, sha1) = url
-  val label2 = Label(l)
+  val re(label, sha1) = url
   def toFileString(): String = url
 }
 
-object GenAssetDigest{
-  def apply(data: Array[Byte], label:Label): AssetDigest = {
+object GenAssetDigest {
+  def apply(data: Array[Byte], label:String): AssetDigest = {
     val md = java.security.MessageDigest.getInstance("SHA-1")
-    val labelString = label.label
+    val labelString = label
     val sha1 = new sun.misc.BASE64Encoder().encode(md.digest(data))
     AssetDigest(s"bbbmap:$labelString:$sha1")
   }
 }
 
-case class Mapping(extractor: String, templates: List[UrlTemplate])
+case class Mapping(providers: List[ProviderConfig])
 
 trait MappingLoader {
   def load(path: String): String
@@ -54,8 +61,7 @@ trait MappingLoader {
 }
 
 case class FileMappingLoader() extends MappingLoader {
-  override def load(path: String): String =
-    Source.fromFile(path).mkString("")
+  override def load(path: String): String = Source.fromFile(path).mkString("")
 
   override def write(path: String, json: String): Unit = {
     val fw = new FileWriter(path)
@@ -64,89 +70,78 @@ case class FileMappingLoader() extends MappingLoader {
   }
 }
 
-object MappingHelper extends JsonMethods with v2.JsonSupport {
-  implicit val timeout = AppConfig.timeout
+case class MappingHelper(loader: MappingLoader) extends JsonMethods with v2.JsonSupport {
   val extractorName = "extractor"
   val templatesName = "templates"
-  var loader: MappingLoader = new FileMappingLoader
 
+  def toJsonStr(m:Mapping):String = write[Mapping](m)
+  def toJson(m: Mapping): String = compact(render(Extraction.decompose(m.providers)))
+  def load(path: String): Future[Mapping] = Future(loader.load(path)).map(fromJsonStr)
+  def store(mappingPath: String, mapping: Mapping): Future[Unit] = Future(loader.write(mappingPath, toJson(mapping)))
+
+  def fromJsonStr(jsonString: String): Mapping = {
+    val m = read[Option[List[ProviderConfig]]](jsonString).map(Mapping)
+    m.getOrElse(throw new IllegalArgumentException(s"cant parse jsonString: $jsonString"))
+  }
+}
+
+class MessageSender(config: AppConfig, referenceFactory: ActorRefFactory) extends JsonMethods with v2.JsonSupport {
+  val eventHeader = config.mapping.eventHeader
+  val publisherConfiguration = PublisherConfiguration(config.mapping.sender)
+  val qSender = referenceFactory.actorOf(Props(new RabbitMqConfirmedPublisher(reliableConnection, publisherConfiguration)), "QuarterMasterPublisher")
+  val executionContext = DiagnosticExecutionContext(referenceFactory.dispatcher)
+  private val reliableConnection = RabbitMq.reliableConnection(config.rabbit)
+  implicit val timeout = AppConfig.timeout
   implicit object MappingValue extends JsonEventBody[Mapping] {
     val jsonMediaType = MediaType("application/vnd.blinkbox.books.mapping.update.v1+json")
   }
 
-  def fromJsonStr(jsonString: String): Mapping = {
-    val m = read[Option[Mapping]](jsonString)
-    m.getOrElse(throw new IllegalArgumentException(s"cant parse jsonString: $jsonString"))
-  }
-
-  def toJson(m: Mapping): String =  write[Mapping](m)
-
-  def store(mappingPath: String, mapping: Mapping): Future[Unit] =
-    Future(MappingHelper.loader.write(mappingPath, MappingHelper.toJson(mapping)))
-
-  def load(path: String): Future[Mapping] = Future(loader.load(path)).map(fromJsonStr)
-
-  def broadcastUpdate(qsender: ActorRef, eventHeader: EventHeader, mapping: Mapping): Future[Any] = {
-    qsender ? Event.json[Mapping](eventHeader, mapping)
-  }
+  def broadcastUpdate(mapping: Mapping): Future[Any] = qSender ? Event.json[Mapping](eventHeader, mapping)
 }
 
-class MessageSender(config: AppConfig, arf: ActorRefFactory) {
-  private val reliableConnection = RabbitMq.reliableConnection(config.rabbitmq)
-  val publisherConfiguration = PublisherConfiguration(config.mapping.sender)
-  val qSender = arf.actorOf(Props(new RabbitMqConfirmedPublisher(reliableConnection, publisherConfiguration)), "QuarterMasterPublisher")
-  val executionContext = DiagnosticExecutionContext(arf.dispatcher)
-}
+case class QuarterMasterService(appConfig: AppConfig,  messageSender: MessageSender, storageManager: StorageManager, mappingHelper: MappingHelper) extends StrictLogging {
 
-case class QuarterMasterService(appConfig: AppConfig, initMapping: Mapping, messageSender: MessageSender, storageManager: StorageManager) {
-  val mapping= new AtomicReference(initMapping)
-  val log = LoggerFactory.getLogger(classOf[QuarterMasterRoutes])
-  def cleanUp(assetToken: AssetDigest, label:Label): Future[Map[ProviderType, Status]] =
-    storageManager.cleanUp(assetToken, label).map(_.toMap)
+  def cleanUp(assetDigest: AssetDigest): Future[Map[String, Status]] =
+    storageManager.cleanUp(assetDigest).map(_.toMap)
 
-  def storeAsset(bytes: Array[Byte], label: Label): Future[(AssetDigest, Future[Map[ProviderType, Status]])] = Future {
-    val providersForLabel: Set[StorageProvider] = storageManager.getProvidersForLabel(label)
-    if (providersForLabel.size < appConfig.storage.minStorageProviders) {
-        throw new NotImplementedException(s"label $label is has no available storage providers")
-      }
-      if (bytes.size < 1) {
-        throw new IllegalArgumentException(s"no data")
-      }
-      val assetToken = GenAssetDigest(bytes,label)
-      val f = storageManager.storeAsset(assetToken, bytes, label)
-      (assetToken, f)
+  def storeAsset(bytes: Array[Byte], label: String): Future[(AssetDigest, Future[Map[String, Status]])] = Future {
+    if (bytes.size < 1) {
+      throw new IllegalArgumentException(s"no data")
+    }
+    if (storageManager.getProvidersForLabel(label).size < appConfig.mapping.minStorageProviders) {
+      throw new NotImplementedException(s"label $label has no available storage providers")
+    }
+    storageManager.storeAsset(label, bytes)
   }
 
-  def getStatus(token: AssetDigest): Future[Map[ProviderType, Status]] =
-    storageManager.getStatus(token)
+  def getStatus(assetDigest: AssetDigest): Future[Map[String, Status]] =
+    storageManager.getStatus(assetDigest)
 
-  def updateAndBroadcastMapping(mappingStr: String): Future[String] ={
-    val oldMapping = this.mapping.get
+  def updateAndBroadcastMapping(mappingStr: String): Future[String] = {
+    val oldMapping = storageManager.mapping.get
     val storeAndBroadcastFuture = for {
-      mapping <- Future(MappingHelper.fromJsonStr(mappingStr))
-      _ = set(mapping)
-      _ <- MappingHelper.store(appConfig.mapping.path, mapping)
-      _ <- MappingHelper.broadcastUpdate(messageSender.qSender, appConfig.mapping.eventHeader, mapping)
-    } yield MappingHelper.toJson(mapping)
+      newMapping <- Future(mappingHelper.fromJsonStr(mappingStr))
+      _ = storageManager.mapping.compareAndSet(oldMapping,newMapping)
+      _ <- mappingHelper.store(appConfig.mapping.path, newMapping)
+      _ <- messageSender.broadcastUpdate(newMapping)
+    } yield mappingHelper.toJson(newMapping)
     storeAndBroadcastFuture.onFailure {
       case NonFatal(e) =>
-        log.error("couldnt storeAndBroadcast mapping",e)
-        this.mapping.set(oldMapping)}
+        logger.error(s"couldnt storeAndBroadcast mapping for $mappingStr",e)
+        storageManager.mapping.set(oldMapping)}
     storeAndBroadcastFuture
   }
 
-  def set(newMapping: Mapping): Unit = this.mapping.set(newMapping)
-
   def loadMapping(): Future[String] = {
-    val oldMapping = this.mapping.get
+    val oldMapping = storageManager.mapping.get
     val loadAndSetFuture = for {
-      newMapping <- MappingHelper.load(appConfig.mapping.path)
-      _ = set(newMapping)
-    } yield MappingHelper.toJson(newMapping)
-    loadAndSetFuture.onFailure{
+      newMapping <- mappingHelper.load(appConfig.mapping.path)
+      _ = storageManager.mapping.compareAndSet(oldMapping,newMapping)
+    } yield mappingHelper.toJson(newMapping)
+    loadAndSetFuture.onFailure {
       case NonFatal(e) =>
-        log.error("couldnt load mapping",e)
-        this.mapping.set(oldMapping)
+        logger.error("couldnt load mapping",e)
+        storageManager.mapping.set(oldMapping)
     }
     loadAndSetFuture
   }

@@ -1,97 +1,94 @@
 package com.blinkbox.books.storageservice
 
 import java.nio.file.{FileSystems, Files, Path}
-
+import java.util.concurrent.atomic.AtomicReference
 import com.blinkbox.books.spray.{Directives => CommonDirectives}
 import spray.http.DateTime
-
-import scala.collection.mutable.{HashMap, MultiMap}
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 
-case class ProviderType(name: String)
+case class ProviderId(name: String)
+case class JobId(providerId: String, assetDigest: AssetDigest)
 
-case class JobId(providerType: ProviderType, assetToken: AssetDigest)
-
-trait StorageDao {
-  val rootPath: String
-
-  def write(assetToken: AssetDigest, data: Array[Byte]): Future[Unit]
-
-  def cleanUp(assetToken: AssetDigest): Future[Unit]
+abstract class StorageDao {
+  val storageConfig:NamedStorageConfig
+  val providerId = storageConfig.providerId
+  def write(assetDigest: AssetDigest, data: Array[Byte]): Future[Unit]
+  def cleanUp(assetDigest: AssetDigest): Future[Unit]
+  def exists(assetDigest:AssetDigest): Future[Boolean]
 }
 
-case class StorageProvider(repo: StorageProviderRepo, providerType: ProviderType, dao: StorageDao) {
+case class StorageProvider(repo: StorageProviderRepo,  dao: StorageDao) {
+  val providerId = dao.providerId
+
   def isAssetWritable(status: Status) = status match {
     case Status.notFound | Status.finished | Status.failed => true
     case _ => false
   }
 
-  def writeIfNotStarted(assetToken: AssetDigest, data: Array[Byte]): Future[(ProviderType, Status)] = {
-    val jobId = JobId(providerType, assetToken)
+  def writeIfNotStarted(assetDigest: AssetDigest, data: Array[Byte]): Future[(String, Status)] = {
+    val jobId = JobId(providerId, assetDigest)
     repo.getStatus(jobId).flatMap(status => isAssetWritable(status) match {
-      case true => write(assetToken, data).recoverWith({ case _ => cleanUp(assetToken)})
-      case _ => Future.successful(providerType, status)
+      case true => write(assetDigest, data).recoverWith({ case e => cleanUp(assetDigest)})
+      case _ => Future.successful(providerId, status)
     })
   }
 
-  def write(assetToken: AssetDigest, data: Array[Byte]): Future[(ProviderType, Status)] = {
+  def write(assetDigest: AssetDigest, data: Array[Byte]): Future[(String, Status)] = {
     val numBytes = data.length
     val started = DateTime.now
-    val jobId = JobId(providerType, assetToken)
+    val jobId = JobId(providerId, assetDigest)
     for {
       _ <- repo.updateProgress(jobId, numBytes, started, 0)
-      _ <- dao.write(assetToken, data)
+      _ <- dao.write(assetDigest, data)
       _ <- repo.removeProgress(jobId)
-    } yield (providerType, Status.finished)
+    } yield (providerId, Status.finished)
   }
 
-  def cleanUp(assetToken: AssetDigest): Future[(ProviderType, Status)] =
+  def cleanUp(assetDigest: AssetDigest): Future[(String, Status)] =
     for {
-      _ <- dao.cleanUp(assetToken)
-      _ <- repo.removeProgress(JobId(providerType, assetToken))
-    } yield (providerType, Status.failed)
+      _ <- dao.cleanUp(assetDigest)
+      _ <- repo.removeProgress(JobId(providerId, assetDigest))
+    } yield (providerId, Status.failed)
 }
 
- case class StorageManager(repo: StorageProviderRepo, providerConfigs: Set[ProviderConfig]) {
-  val providerType = providerConfigs.map(_.provider.providerType)
-  val label2Providers = getProviders(providerConfigs)
+ case class StorageManager(repo: StorageProviderRepo, initMapping: Mapping, storageProviders:Set[StorageProvider]) {
+   val mapping= new AtomicReference(initMapping)
+   def getProvidersForLabel(label: String):Set[StorageProvider] = getProvidersFor(_.label == label)
+   def getProvidersForDigest(digest: AssetDigest):Set[StorageProvider] = getProvidersFor(_.matches(digest))
 
-  private def toImmutableMap[A, B](x: collection.mutable.Map[A, collection.mutable.Set[B]]): Map[A, collection.immutable.Set[B]] =
-    x.map((kv) => (kv._1, kv._2.toSet)).toMap
+   def getProvidersFor(filterFunction:(ProviderConfig)=>Boolean): Set[StorageProvider] = {
+     val providers = for {
+       template <- mapping.get.providers
+       if filterFunction(template)
+       storageProvider <- storageProviders
+       providerIdTemplate <- template.providers
+       if storageProvider.providerId == providerIdTemplate._1
+      } yield storageProvider
+     providers.toSet
+   }
 
-  private def getProviders(providerConfigs: Set[ProviderConfig]): Map[Label, Set[StorageProvider]] = {
-    val tmpMultiMap = new HashMap[Label, collection.mutable.Set[StorageProvider]] with MultiMap[Label, StorageProvider]
-    providerConfigs.map((dc) => dc.labels.map((label) => tmpMultiMap.addBinding(label, dc.provider)))
-    toImmutableMap[Label, StorageProvider](tmpMultiMap)
+  def storeAsset(label: String, data: Array[Byte]): (AssetDigest, Future[Map[String, Status]]) = {
+    val assetDigest = GenAssetDigest(data, label)
+    val eventualStatusMap = Future.traverse[StorageProvider, (String, Status), Set](getProvidersForLabel(label))(_.writeIfNotStarted(assetDigest, data))
+    (assetDigest,eventualStatusMap.map {(statusTuples) => statusTuples.toMap})
   }
 
-  def getProvidersForLabel(label: Label): Set[StorageProvider] = {
-    label2Providers.getOrElse(label, Set.empty)
-  }
+  def getStatus(assetDigest: AssetDigest): Future[Map[String, Status]] =
+    Future.traverse(getProvidersForDigest(assetDigest))((dt) =>
+      repo.getStatus(JobId(dt.providerId, assetDigest)).map((dt.providerId, _))).map(_.toMap)
 
-  def storeAsset(assetToken: AssetDigest, data: Array[Byte], label: Label): Future[Map[ProviderType, Status]] = {
-    val storageProviders = getProvidersForLabel(label)
-     Future.traverse[StorageProvider, (ProviderType, Status), Set](storageProviders)(_.writeIfNotStarted(assetToken, data))
-     .map{ (s) =>  s.toMap}
-  }
+  def getProgress(assetDigest: AssetDigest): Future[Map[String, Option[Progress]]] =
+    Future.traverse(getProvidersForDigest(assetDigest))((dt) =>
+      repo.getProgress(JobId(dt.providerId, assetDigest)).map((dt.providerId, _))).map(_.toMap)
 
-  def getStatus(assetToken: AssetDigest): Future[Map[ProviderType, Status]] =
-    Future.traverse(providerType)((dt) =>
-      repo.getStatus(JobId(dt, assetToken)).map((dt, _))).map(_.toMap)
-
-  def getProgress(assetToken: AssetDigest): Future[Map[ProviderType, Option[Progress]]] =
-    Future.traverse(providerType)((dt) =>
-      repo.getProgress(JobId(dt, assetToken)).map((dt, _))).map(_.toMap)
-
-  def cleanUp(assetToken: AssetDigest, label: Label): Future[Set[(ProviderType, Status)]] =
-    Future.traverse(getProvidersForLabel(label))(_.cleanUp(assetToken))
+  def cleanUp(assetDigest: AssetDigest): Future[Set[(String, Status)]] =
+    Future.traverse(getProvidersForDigest(assetDigest))(_.cleanUp(assetDigest))
 }
 
-case class LocalStorageDao(rootPath: String) extends StorageDao {
-  def getPath(assetToken: AssetDigest): Path = FileSystems.getDefault.getPath(rootPath, assetToken.toFileString())
-
-  override def write(assetToken: AssetDigest, data: Array[Byte]): Future[Unit] = Future(Files.write(getPath(assetToken), data))
-
-  override def cleanUp(assetToken: AssetDigest): Future[Unit] = Future(Files.deleteIfExists(getPath(assetToken))).map(_ => ())
+case class LocalStorageDao(storageConfig: LocalStorageConfig) extends StorageDao {
+  def getPath(assetDigest: AssetDigest): Path = FileSystems.getDefault.getPath(storageConfig.storagePath, assetDigest.toFileString())
+  override def write(assetDigest: AssetDigest, data: Array[Byte]): Future[Unit] = Future(Files.write(getPath(assetDigest), data))
+  override def cleanUp(assetDigest: AssetDigest): Future[Unit] = Future(Files.deleteIfExists(getPath(assetDigest))).map(_ => ())
+  override def exists(assetDigest: AssetDigest): Future[Boolean] = Future(Files.exists(getPath(assetDigest)))
 }
