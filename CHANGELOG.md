@@ -1,4 +1,12 @@
 # Change log
+## 0.1.4 ([#10](https://git.mobcastdev.com/Quartermaster/storage-service/pull/10) 2014-11-27 11:16:01)
+
+Patch: Major Refactoring , also ensuring json schema compliant replies , Mapping as json
+
+Patch: fix refactoring of storage service, 
+included code fix to ensure that service always returns json as per schema
+include test to ensure code fix works as specified
+
 ## 0.1.3 ([#9](https://git.mobcastdev.com/Quartermaster/storage-service/pull/9) 2014-11-17 18:22:29)
 
 CP-1710: bug fix for storage configs, using standard configs, 
