@@ -22,6 +22,7 @@ import scala.io.Source
 import scala.util.control.NonFatal
 import scala.util.matching.Regex
 import com.typesafe.scalalogging.StrictLogging
+import scala.util.Try
 
 case class UserId(id: String)
 case class LocationTemplate(template:String)
@@ -60,7 +61,7 @@ trait MappingLoader {
   def write(path: String, json: String): Unit
 }
 
-case class FileMappingLoader() extends MappingLoader {
+class FileMappingLoader() extends MappingLoader {
   override def load(path: String): String = Source.fromFile(path).mkString("")
 
   override def write(path: String, json: String): Unit = {
@@ -104,7 +105,7 @@ case class QuarterMasterService(appConfig: AppConfig,  messageSender: MessageSen
   def cleanUp(assetDigest: AssetDigest): Future[Map[String, Status]] =
     storageManager.cleanUp(assetDigest).map(_.toMap)
 
-  def storeAsset(bytes: Array[Byte], label: String): Future[(AssetDigest, Future[Map[String, Status]])] = Future {
+  def storeAsset(bytes: Array[Byte], label: String): (AssetDigest, Future[Map[String, Status]]) =  {
     if (bytes.size < 1) {
       throw new IllegalArgumentException(s"no data")
     }
@@ -120,7 +121,7 @@ case class QuarterMasterService(appConfig: AppConfig,  messageSender: MessageSen
   def updateAndBroadcastMapping(mappingStr: String): Future[String] = {
     val oldMapping = storageManager.mapping.get
     val storeAndBroadcastFuture = for {
-      newMapping <- Future(mappingHelper.fromJsonStr(mappingStr))
+      newMapping <- Future.fromTry(Try(mappingHelper.fromJsonStr(mappingStr)))
       _ = storageManager.mapping.compareAndSet(oldMapping,newMapping)
       _ <- mappingHelper.store(appConfig.mapping.path, newMapping)
       _ <- messageSender.broadcastUpdate(newMapping)

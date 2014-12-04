@@ -24,6 +24,7 @@ import scala.concurrent.duration._
 import scala.util.Right
 import scala.util.control.NonFatal
 import com.typesafe.scalalogging.StrictLogging
+import spray.http.HttpHeaders.RawHeader
 
 case class QuarterMasterRoutes(qms: QuarterMasterService, actorRefFactory: ActorRefFactory) extends HttpService
   with CommonDirectives with BasicUnmarshallers with v2.JsonSupport with StrictLogging {
@@ -31,6 +32,7 @@ case class QuarterMasterRoutes(qms: QuarterMasterService, actorRefFactory: Actor
     val refreshUri = "refresh"
     val resourcesUri = "resources"
     val appConfig = qms.appConfig
+    val localUrl = appConfig.api.localUrl
     val mappingRoute = path(mappingUri) {
 
     implicit val timeout = AppConfig.timeout
@@ -40,7 +42,7 @@ case class QuarterMasterRoutes(qms: QuarterMasterService, actorRefFactory: Actor
     }
 
     val storeAssetRoute = {
-      implicit val formUnmarshaller = FormDataUnmarshallers.MultipartFormDataUnmarshaller
+      implicit val formUnmarshaller = FormDataUnmarshallers.multipartFormDataUnmarshaller(strict = false)
       implicit def textUnmarshaller[T: Manifest] =
         Unmarshaller[T](MediaTypes.`text/plain`) {
           case x: HttpEntity.NonEmpty =>
@@ -54,12 +56,14 @@ case class QuarterMasterRoutes(qms: QuarterMasterService, actorRefFactory: Actor
           entity(as[MultipartFormData]) { (form) =>
             val dataRight = new MultipartFormField("data", form.get("data")).as[Array[Byte]]
             val labelRight = new MultipartFormField("label", form.get("label")).as[String]
-            val result = for {
+            val maybeFutureAssetDigest = for {
               data <- dataRight.right
               label <- labelRight.right
-            } yield qms.storeAsset(data, label).map[AssetDigest](_._1)
-            result match {
-              case Right(result) => complete(StatusCodes.Accepted, result)
+            } yield qms.storeAsset(data, label)
+            maybeFutureAssetDigest match {
+              case Right((assetDigest, eventualResultsMap)) => respondWithHeader(RawHeader("Location", s"${localUrl}/${resourcesUri}/${assetDigest.url}")){
+                complete(StatusCodes.Accepted, eventualResultsMap)
+              }
               case _ => complete(StatusCodes.InternalServerError)
             }
           }
