@@ -259,7 +259,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
        when(repo.getStatus(any[JobId])).thenReturn(Future(Status.notFound))
        val storageManager = new StorageManager(repo, mapping, providers)
        val qms2 = new QuarterMasterService(appConfig, MockitoSugar.mock[MessageSender], storageManager, MockitoSugar.mock[MappingHelper])
-       val callAccepted =  Try(qms2.storeAsset(data, label))
+       val callAccepted = Try(qms2.storeAsset(data, label))
        val matchingProviders = (for {
          urlTemplate <- mapping.providers.filter(_.label == label)
          provider <- providers.filter(provider => urlTemplate.providers.keySet.contains(provider.providerId))
@@ -280,7 +280,8 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
              waiter.dismiss()
            })
        }
-       waiter.await()}
+       waiter.await()
+       }
      }
    }
  }
@@ -341,22 +342,10 @@ it should "reload the mapping path" in {
     def routes = router.routes
     val formData =  MultipartFormData(Map(
       "label" -> BodyPart(HttpEntity(ContentTypes.`text/plain`, label)),
-      "data" -> BodyPart(HttpEntity(assetContentType, HttpData(inputData)))
-    ))
-
+      "data" -> BodyPart(HttpEntity(assetContentType, HttpData(inputData)))))
     Post("/resources", formData) ~> routes ~> check {
       status shouldEqual Accepted
       mediaType.toString === "application/vnd.blinkbox.books.mapping.update.v1+jsonDFAD"
       header("Location") match {case Some(RawHeader("Location", storageHeader)) => storageHeader should fullyMatch regex s"http://.+/resources/bbbmap:${label}:.+"}
     }}
 }
-
-
-
-
-
-
-
-
-
-
