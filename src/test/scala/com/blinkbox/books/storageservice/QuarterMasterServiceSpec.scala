@@ -35,9 +35,10 @@ import spray.http.StatusCodes._
 import spray.http._
 import spray.testkit.ScalatestRouteTest
 import spray.util.NotImplementedException
-
+import scala.util.{Try,Success,Failure}
 import scala.concurrent.Future
 import scala.util.Random
+import spray.http.HttpHeaders.RawHeader
 
 @RunWith(classOf[JUnitRunner])
 class QuarterMasterSpecification extends Configuration with FlatSpecLike with ScalatestRouteTest
@@ -85,7 +86,6 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
     val differentLabel = label + System.nanoTime()
     val providerIds = providers.map(_.providerId).toSeq
     for {
-      containsProvider <- arbitrary[Boolean]
       resultLabel <- Gen.oneOf(label, differentLabel)
       matchingProviderId <- Gen.oneOf(providerIds)
       resultProviderId <- Gen.oneOf(matchingProviderId, "dummyProviderId" + System.nanoTime())
@@ -246,7 +246,7 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
 
  "the quarterMaster" should "clean up failed assets" in {
    val timeout = Timeout(Span(50, Seconds))
-   forAll (genProvidersLabelAndMapping, Gen.listOf(arbitrary[Byte])) {
+   forAll (genProvidersLabelAndMapping, Gen.nonEmptyListOf(arbitrary[Byte])) {
      (providersLabelMapping, dataList) => {
        val providers = providersLabelMapping._1
        val label = providersLabelMapping._2
@@ -259,37 +259,29 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
        when(repo.getStatus(any[JobId])).thenReturn(Future(Status.notFound))
        val storageManager = new StorageManager(repo, mapping, providers)
        val qms2 = new QuarterMasterService(appConfig, MockitoSugar.mock[MessageSender], storageManager, MockitoSugar.mock[MappingHelper])
-       val callAccepted = qms2.storeAsset(data, label)
+       val callAccepted = Try(qms2.storeAsset(data, label))
        val matchingProviders = (for {
          urlTemplate <- mapping.providers.filter(_.label == label)
          provider <- providers.filter(provider => urlTemplate.providers.keySet.contains(provider.providerId))
        } yield provider).toSet
        val matchingSuccessfulProviders = matchingProviders.filter(_.providerId.startsWith("Successful"))
        val matchingSuccessfulDaos = matchingSuccessfulProviders.map(_.dao)
-       waiter {
-          val eventualMap = callAccepted.flatMap(_._2)
-            if (data.size < 1) {
-              whenReady(eventualMap.failed, timeout) {
-                exception => exception shouldBe a[IllegalArgumentException]
-                waiter.dismiss()
-              }
-            } else if (matchingProviders.size < 1) {
-              whenReady(eventualMap.failed, timeout) {
-                exception => exception shouldBe a[NotImplementedException]
-                waiter.dismiss()
-              }
-            } else
-           whenReady(eventualMap, timeout)((s) => {
-             val assetDigest = callAccepted.futureValue._1
-             val matchingFailingDaos = matchingProviders.filter(_.providerId.startsWith("Failing")).map(_.dao)
-             matchingSuccessfulDaos.map(verify(_, times(1)).write(eql(assetDigest), aryEq(data)))
-             matchingSuccessfulDaos.map(verify(_, never).cleanUp(any[AssetDigest]))
-             matchingFailingDaos.map(verify(_, times(1)).write(eql(assetDigest), aryEq(data)))
-             matchingFailingDaos.map(verify(_, times(1)).cleanUp(any[AssetDigest]))
-             waiter.dismiss()
-           })
+       callAccepted match {
+         case Failure(e:IllegalArgumentException) => assert(data.size < 1)
+         case Failure(e:NotImplementedException) =>  assert(matchingProviders.size < 1)
+         case Success ((assetDigest,eventualMap)) =>
+           waiter {
+             whenReady(eventualMap, timeout)((s) => {
+               val matchingFailingDaos = matchingProviders.filter(_.providerId.startsWith("Failing")).map(_.dao)
+               matchingSuccessfulDaos.map(verify(_, times(1)).write(eql(assetDigest), aryEq(data)))
+               matchingSuccessfulDaos.map(verify(_, never).cleanUp(any[AssetDigest]))
+               matchingFailingDaos.map(verify(_, times(1)).write(eql(assetDigest), aryEq(data)))
+               matchingFailingDaos.map(verify(_, times(1)).cleanUp(any[AssetDigest]))
+               waiter.dismiss()
+             })
        }
        waiter.await()
+       }
      }
    }
  }
@@ -323,5 +315,36 @@ it should "reload the mapping path" in {
     mediaType.toString == "application/vnd.blinkbox.books.mapping.update.v1+json"
   }
 }
-}
 
+  it should "save an artifact" in {
+    val providerId = "saveArtifactProvider"
+    val provider = getSuccessfulProvider(providerId)
+    val providers = Set(provider)
+    val label = "saveArtifactLabel"
+    val template = "template"
+    val extractor = "some regex"
+    val mapping = Mapping(List(ProviderConfig(label, extractor, Map (providerId -> template))))
+    val inputData = "this is the data".getBytes
+    val locationPattern="""http://.+/resources/bbmap:.+""".r
+    val repo = MockitoSugar.mock[StorageProviderRepo]
+    when(repo.updateProgress(any[JobId], any[Long], any[DateTime], any[Long])).thenReturn(Future.successful(()))
+    when(repo.removeProgress(any[JobId])).thenReturn(Future.successful(()))
+    when(repo.getStatus(any[JobId])).thenReturn(Future(Status.notFound))
+    val storageManager = new StorageManager(repo, mapping, providers)
+    val mockSender = MockitoSugar.mock[MessageSender]
+    val mockMappingHelper = MockitoSugar.mock[MappingHelper]
+    val service = new QuarterMasterService(appConfig, mockSender, storageManager, mockMappingHelper)
+    val router = new QuarterMasterRoutes(service,createActorSystem())
+    val binary = true
+    val compressible = true
+    val assetContentType = ContentType(MediaType.custom("application", "epub+zip", compressible, binary, Seq[String]("epub"), Map.empty))
+    def routes = router.routes
+    val formData = MultipartFormData(Map(
+      "label" -> BodyPart(HttpEntity(ContentTypes.`text/plain`, label)),
+      "data" -> BodyPart(HttpEntity(assetContentType, HttpData(inputData)))))
+    Post("/resources", formData) ~> routes ~> check {
+      status shouldEqual Accepted
+      mediaType.toString == "application/vnd.blinkbox.books.mapping.update.v1+jsonDFAD"
+      header("Location") match {case Some(RawHeader("Location", storageHeader)) => storageHeader should fullyMatch regex s"http://.+/resources/bbbmap:${label}:.+"}
+    }}
+}
