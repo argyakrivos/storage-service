@@ -270,15 +270,15 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
          case Failure(e:IllegalArgumentException) => assert(data.size < 1)
          case Failure(e:NotImplementedException) =>  assert(matchingProviders.size < 1)
          case Success ((assetDigest,eventualMap)) =>
-       waiter {
-           whenReady(eventualMap, timeout)((s) => {
-             val matchingFailingDaos = matchingProviders.filter(_.providerId.startsWith("Failing")).map(_.dao)
-             matchingSuccessfulDaos.map(verify(_, times(1)).write(eql(assetDigest), aryEq(data)))
-             matchingSuccessfulDaos.map(verify(_, never).cleanUp(any[AssetDigest]))
-             matchingFailingDaos.map(verify(_, times(1)).write(eql(assetDigest), aryEq(data)))
-             matchingFailingDaos.map(verify(_, times(1)).cleanUp(any[AssetDigest]))
-             waiter.dismiss()
-           })
+           waiter {
+             whenReady(eventualMap, timeout)((s) => {
+               val matchingFailingDaos = matchingProviders.filter(_.providerId.startsWith("Failing")).map(_.dao)
+               matchingSuccessfulDaos.map(verify(_, times(1)).write(eql(assetDigest), aryEq(data)))
+               matchingSuccessfulDaos.map(verify(_, never).cleanUp(any[AssetDigest]))
+               matchingFailingDaos.map(verify(_, times(1)).write(eql(assetDigest), aryEq(data)))
+               matchingFailingDaos.map(verify(_, times(1)).cleanUp(any[AssetDigest]))
+               waiter.dismiss()
+             })
        }
        waiter.await()
        }
@@ -325,7 +325,6 @@ it should "reload the mapping path" in {
     val extractor = "some regex"
     val mapping = Mapping (List (ProviderConfig (label, extractor, Map (providerId -> template))))
     val inputData = "this is the data".getBytes
-    val waiter = new Waiter
     val locationPattern="""http://.+/resources/bbmap:.+""".r
     val repo = MockitoSugar.mock[StorageProviderRepo]
     when(repo.updateProgress(any[JobId], any[Long], any[DateTime], any[Long])).thenReturn(Future.successful(()))

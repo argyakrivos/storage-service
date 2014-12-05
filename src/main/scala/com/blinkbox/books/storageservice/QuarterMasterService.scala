@@ -105,7 +105,7 @@ case class QuarterMasterService(appConfig: AppConfig,  messageSender: MessageSen
   def cleanUp(assetDigest: AssetDigest): Future[Map[String, Status]] =
     storageManager.cleanUp(assetDigest).map(_.toMap)
 
-  def storeAsset(bytes: Array[Byte], label: String): (AssetDigest, Future[Map[String, Status]]) =  {
+  def storeAsset(bytes: Array[Byte], label: String): (AssetDigest, Future[Map[String, Status]]) = {
     if (bytes.size < 1) {
       throw new IllegalArgumentException(s"no data")
     }
