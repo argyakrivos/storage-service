@@ -94,16 +94,6 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
     } yield ProviderConfig(resultLabel,  extractorRegex, Map(resultProviderId -> template))
   }
 
-  def templateForProvidersAndLabelHappy(providers: Set[StorageProvider], label: String):Gen[ProviderConfig] = {
-    val providerIds = providers.map(_.providerId).toSeq
-    for {
-      providerId <- Gen.oneOf(providerIds)
-      template <- arbitrary[String]
-      extractorRegex <- Gen.alphaStr
-    } yield ProviderConfig(label,  extractorRegex, Map(providerId -> template))
-  }
-
-
   def genMappingForProvidersAndLabel(providers: Set[StorageProvider], label: String) : Gen[Mapping] = for {
     urlTemplateList <- Gen.listOf(templateForProvidersAndLabel(providers, label))
   } yield Mapping(urlTemplateList)
@@ -254,13 +244,6 @@ with Matchers with GeneratorDrivenPropertyChecks with ScalaFutures with  akka.te
    mapping <- genMappingForProvidersAndLabel(providers, label)
  } yield (providers, label , mapping)
 
-
-  def genProvidersLabelAndMappingHappy = for {
-   providers <- Gen.nonEmptyListOf(genSuccessfulProvider).map(_.toSet)
-   label <- labelGen
-   urlTemplateList <- Gen.nonEmptyListOf(templateForProvidersAndLabelHappy(providers, label))
- } yield (providers, label , Mapping(urlTemplateList))
-
  "the quarterMaster" should "clean up failed assets" in {
    val timeout = Timeout(Span(50, Seconds))
    forAll (genProvidersLabelAndMapping, Gen.nonEmptyListOf(arbitrary[Byte])) {
@@ -331,7 +314,6 @@ it should "reload the mapping path" in {
     mediaType.toString == "application/vnd.blinkbox.books.mapping.update.v1+json"
   }
 }
-
 
   it should "save an artifact" in {
     val providerId = "saveArtifactProvider"
