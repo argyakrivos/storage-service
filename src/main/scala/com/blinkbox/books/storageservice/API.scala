@@ -56,11 +56,11 @@ case class QuarterMasterRoutes(qms: QuarterMasterService, actorRefFactory: Actor
           entity(as[MultipartFormData]) { (form) =>
             val dataRight = new MultipartFormField("data", form.get("data")).as[Array[Byte]]
             val labelRight = new MultipartFormField("label", form.get("label")).as[String]
-            val maybeFutureAssetDigest = for {
+            val maybeAssetDigestResultsTuple = for {
               data <- dataRight.right
               label <- labelRight.right
             } yield qms.storeAsset(data, label)
-            maybeFutureAssetDigest match {
+            maybeAssetDigestResultsTuple match {
               case Right((assetDigest, eventualResultsMap)) => respondWithHeader(RawHeader("Location", s"${localUrl}/${resourcesUri}/${assetDigest.url}")){
                 complete(StatusCodes.Accepted, eventualResultsMap)
               }
