@@ -319,11 +319,11 @@ it should "reload the mapping path" in {
   it should "save an artifact" in {
     val providerId = "saveArtifactProvider"
     val provider = getSuccessfulProvider(providerId)
-    val providers = Set (provider)
+    val providers = Set(provider)
     val label = "saveArtifactLabel"
     val template = "template"
     val extractor = "some regex"
-    val mapping = Mapping (List (ProviderConfig (label, extractor, Map (providerId -> template))))
+    val mapping = Mapping(List(ProviderConfig(label, extractor, Map (providerId -> template))))
     val inputData = "this is the data".getBytes
     val locationPattern="""http://.+/resources/bbmap:.+""".r
     val repo = MockitoSugar.mock[StorageProviderRepo]
@@ -333,18 +333,18 @@ it should "reload the mapping path" in {
     val storageManager = new StorageManager(repo, mapping, providers)
     val mockSender = MockitoSugar.mock[MessageSender]
     val mockMappingHelper = MockitoSugar.mock[MappingHelper]
-    val service = new QuarterMasterService(appConfig,  mockSender, storageManager, mockMappingHelper)
+    val service = new QuarterMasterService(appConfig, mockSender, storageManager, mockMappingHelper)
     val router = new QuarterMasterRoutes(service,createActorSystem())
     val binary = true
     val compressible = true
     val assetContentType = ContentType(MediaType.custom("application", "epub+zip", compressible, binary, Seq[String]("epub"), Map.empty))
     def routes = router.routes
-    val formData =  MultipartFormData(Map(
+    val formData = MultipartFormData(Map(
       "label" -> BodyPart(HttpEntity(ContentTypes.`text/plain`, label)),
       "data" -> BodyPart(HttpEntity(assetContentType, HttpData(inputData)))))
     Post("/resources", formData) ~> routes ~> check {
       status shouldEqual Accepted
-      mediaType.toString === "application/vnd.blinkbox.books.mapping.update.v1+jsonDFAD"
+      mediaType.toString == "application/vnd.blinkbox.books.mapping.update.v1+jsonDFAD"
       header("Location") match {case Some(RawHeader("Location", storageHeader)) => storageHeader should fullyMatch regex s"http://.+/resources/bbbmap:${label}:.+"}
     }}
 }

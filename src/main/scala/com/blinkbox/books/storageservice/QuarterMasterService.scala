@@ -61,7 +61,7 @@ trait MappingLoader {
   def write(path: String, json: String): Unit
 }
 
-class FileMappingLoader() extends MappingLoader {
+class FileMappingLoader extends MappingLoader {
   override def load(path: String): String = Source.fromFile(path).mkString("")
 
   override def write(path: String, json: String): Unit = {
