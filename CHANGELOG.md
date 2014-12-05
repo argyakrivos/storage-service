@@ -1,4 +1,13 @@
 # Change log
+## 0.1.5 ([#11](https://git.mobcastdev.com/Quartermaster/storage-service/pull/11) 2014-12-05 17:04:17)
+
+fix: Mapping as json, fix to make it work
+
+### Bug fixes
+
+- fix to add the storage location in the header when requested
+
+
 ## 0.1.4 ([#10](https://git.mobcastdev.com/Quartermaster/storage-service/pull/10) 2014-11-27 11:16:01)
 
 Patch: Major Refactoring , also ensuring json schema compliant replies , Mapping as json
