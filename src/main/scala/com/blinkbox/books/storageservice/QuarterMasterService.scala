@@ -89,9 +89,9 @@ case class MappingHelper(loader: MappingLoader) extends JsonMethods with v2.Json
 class MessageSender(config: AppConfig, referenceFactory: ActorRefFactory) extends JsonMethods with v2.JsonSupport {
   val eventHeader = config.mapping.eventHeader
   val publisherConfiguration = PublisherConfiguration(config.mapping.sender)
+  private val reliableConnection = RabbitMq.reliableConnection(config.rabbit)
   val qSender = referenceFactory.actorOf(Props(new RabbitMqConfirmedPublisher(reliableConnection, publisherConfiguration)), "QuarterMasterPublisher")
   val executionContext = DiagnosticExecutionContext(referenceFactory.dispatcher)
-  private val reliableConnection = RabbitMq.reliableConnection(config.rabbit)
   implicit val timeout = AppConfig.timeout
   implicit object MappingValue extends JsonEventBody[Mapping] {
     val jsonMediaType = MediaType("application/vnd.blinkbox.books.mapping.update.v1+json")
