@@ -1,4 +1,10 @@
 # Change log
+## 0.1.6 ([#12](https://git.mobcastdev.com/Quartermaster/storage-service/pull/12) 2015-01-09 16:46:31)
+
+bugfix : use the variable after its initialisation
+
+bugfix use the storage service after it has been initialised
+
 ## 0.1.5 ([#11](https://git.mobcastdev.com/Quartermaster/storage-service/pull/11) 2014-12-05 17:04:17)
 
 fix: Mapping as json, fix to make it work
