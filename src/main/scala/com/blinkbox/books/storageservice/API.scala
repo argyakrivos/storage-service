@@ -1,6 +1,5 @@
 package com.blinkbox.books.storageservice
 
-import java.nio.file._
 import java.lang.reflect.InvocationTargetException
 import java.nio.file.{Paths, Files}
 import akka.actor.{ Actor, ActorRefFactory, ActorSystem, Props }
