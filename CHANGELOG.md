@@ -1,4 +1,12 @@
 # Change log
+## 0.2.0 ([#13](https://git.mobcastdev.com/Quartermaster/storage-service/pull/13) 2015-01-12 11:04:19)
+
+Copy default mappings file
+
+### New feature
+
+- Copies the default (testing) mapping file to the defined location if none is present.
+
 ## 0.1.6 ([#12](https://git.mobcastdev.com/Quartermaster/storage-service/pull/12) 2015-01-09 16:46:31)
 
 bugfix : use the variable after its initialisation
