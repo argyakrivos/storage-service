@@ -19,3 +19,4 @@ atlassian-ide-plugin.xml
 .ensime_lucene
 /.history
 /.ensime_cache/
+mappings.json

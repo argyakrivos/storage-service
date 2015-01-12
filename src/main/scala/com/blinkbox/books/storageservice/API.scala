@@ -1,5 +1,7 @@
 package com.blinkbox.books.storageservice
+
 import java.lang.reflect.InvocationTargetException
+import java.nio.file.{Paths, Files}
 import akka.actor.{ Actor, ActorRefFactory, ActorSystem, Props }
 import akka.util.Timeout
 import com.blinkbox.books.config.Configuration
@@ -132,6 +134,15 @@ object Boot extends App with Configuration with StrictLogging {
     sys.addShutdownHook(system.shutdown())
     implicit val requestTimeout = Timeout(5.seconds)
     val appConfig = AppConfig(config, system)
+
+    // Copy the basic mapping file if one doesn't exist
+    val mappingsPath = Paths.get(appConfig.mapping.path)
+    if (!Files.exists(mappingsPath)) {
+      logger.info(s"Copying basic mappings file to ${mappingsPath.toString}")
+      Files.createDirectories(mappingsPath.getParent)
+      Files.copy(getClass.getClassLoader.getResourceAsStream("basic-mappings.json"), mappingsPath)
+    }
+
     val messageSender = new MessageSender(appConfig, system)
     val repo = new InMemoryRepo
     val localStorageDao = LocalStorageDao(LocalStorageConfig(appConfig.storage.head))
