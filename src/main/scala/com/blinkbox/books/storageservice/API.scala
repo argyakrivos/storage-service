@@ -1,4 +1,6 @@
 package com.blinkbox.books.storageservice
+
+import java.nio.file._
 import java.lang.reflect.InvocationTargetException
 import java.nio.file.{Paths, Files}
 import akka.actor.{ Actor, ActorRefFactory, ActorSystem, Props }
@@ -137,7 +139,8 @@ object Boot extends App with Configuration with StrictLogging {
     // Copy the basic mapping file if one doesn't exist
     val mappingsPath = Paths.get(appConfig.mapping.path)
     if (!Files.exists(mappingsPath)) {
-      logger.info(s"Copied basic mappings file to ${mappingsPath.toString}")
+      logger.info(s"Copying basic mappings file to ${mappingsPath.toString}")
+      Files.createDirectories(mappingsPath.getParent)
       Files.copy(getClass.getClassLoader.getResourceAsStream("basic-mappings.json"), mappingsPath)
     }
 
