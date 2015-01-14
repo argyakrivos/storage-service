@@ -1,4 +1,10 @@
 # Change log
+## 0.2.1 ([#14](https://git.mobcastdev.com/Quartermaster/storage-service/pull/14) 2015-01-14 17:22:27)
+
+Swagger file cleanup
+
+Patch that gets the Swagger YAML to at least render in the Swagger UI.
+
 ## 0.2.0 ([#13](https://git.mobcastdev.com/Quartermaster/storage-service/pull/13) 2015-01-12 11:04:19)
 
 Copy default mappings file
