@@ -1,4 +1,3 @@
----
 swagger: "2.0"
 info:
   title: Storage Service
@@ -17,7 +16,7 @@ paths:
         200:
           description: "Mapping"
           schema:
-            $ref: MappingFile
+            $ref: '#/definitions/MappingFile'
 
   /resources/{token}:
     get:
@@ -35,7 +34,7 @@ paths:
         200:
           description: "Details of this resource (given that at least 1 provider has this data)"
           schema:
-            $ref: ProviderStatusResponse
+            $ref: '#/definitions/ProviderStatusResponse'
         404:
           description: "The specified resource cannot be found on any of the associated providers."
           examples:
@@ -68,21 +67,21 @@ paths:
         202:
           description: "Resource received and upload request accepted. Storage on remote systems will continue in the background."
           schema:
-            $ref: ProviderStatusResponse
+            $ref: '#/definitions/ProviderStatusResponse'
         400:
-          description: "Missing or invalid parameters"
           examples:
             application/vnd.blinkbox.books.ingestion.storageservice.v2+json: |
               {
                 "code": "InvalidParameters"
               }
+          description: "Missing or invalid parameters"
 
 definitions:
   MappingFile:
-    description: "List of templates that describe how to create a url from a token. Object keys are regular expressions which should match some tokens. Named groups should be used so that components of the token can be inserted into the URLs contained".
+    description: "List of templates that describe how to create a url from a token. Object keys are regular expressions which should match some tokens. Named groups should be used so that components of the token can be inserted into the URLs contained"
     type: array
     items:
-      description: "An object describing a label and how to map tokens of that label's type to URLs".
+      description: "An object describing a label and how to map tokens of that label's type to URLs"
       type: object
       required:
         - label
@@ -97,11 +96,12 @@ definitions:
           description: "A regular expression using named capture groups (PCRE 7.2 format: `(?<name>.+)`) which will match tokens made for this label"
           type: string
         providers:
-          description: "List of providers which are used for this label. Object key is the provider name".
+          description: "List of providers which are used for this label. Object key is the provider name"
           type: object
           additionalProperties:
             description: "A URL with templated sections in sprintf form eg. `https://storage.example.com/bucket/%{variableName}` where `variableName` is a named group catured in the regular expression key above."
             type: string
+
   ProviderStatusResponse:
     description: "progress status of a resource's storage"
     required:
@@ -120,7 +120,7 @@ definitions:
         type: object
         description: "a map of storage requests ->complete boolean"
         additionalProperties:
-          description: "Details of the resource as stored in the various providers".
+          description: "Details of the resource as stored in the various providers"
           type: object
           required:
             - available
@@ -130,11 +130,11 @@ definitions:
               description: "Can the resource be found at this location"?
               type: boolean
             eta:
-              description: "Number of seconds until upload is expected to complete, absent if complete or not started".
+              description: "Number of seconds until upload is expected to complete, absent if complete or not started"
               type: number
               minimum: 0
             percentComplete:
-              description: "Upload complete percentage as fraction of 1, absent if complete or not started".
+              description: "Upload complete percentage as fraction of 1, absent if complete or not started"
               type: number
               minimum: 0
               maximum: 1
