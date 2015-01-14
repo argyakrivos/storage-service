@@ -1,0 +1,3 @@
+local:
+  servers:
+    storage_service: "http://127.0.0.1:7018"
