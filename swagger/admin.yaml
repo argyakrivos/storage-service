@@ -111,7 +111,7 @@ definitions:
     additionalProperties: false
     properties:
       token:
-        description: "a token which represents mapped resources in my butt"
+        description: "a token which represents mapped resources in the cloud"
         type: string
       label:
         description: "allows you to group assets, define some attributes of how they are stored"
