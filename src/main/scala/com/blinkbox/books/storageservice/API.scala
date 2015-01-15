@@ -6,7 +6,7 @@ import akka.actor.{ Actor, ActorRefFactory, ActorSystem, Props }
 import akka.util.Timeout
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.json.DefaultFormats
-import com.blinkbox.books.logging.DiagnosticExecutionContext
+import com.blinkbox.books.logging.{Loggers, DiagnosticExecutionContext}
 import com.blinkbox.books.spray.{ HealthCheckHttpService, HttpServer, v2, Directives => CommonDirectives }
 import com.typesafe.scalalogging.StrictLogging
 import org.json4s.`package`.MappingException
@@ -126,7 +126,7 @@ class WebService(config: AppConfig, qms: QuarterMasterService) extends HttpServi
   override def receive: Actor.Receive = runRoute(routes.routes ~ healthService.routes)
 }
 
-object Boot extends App with Configuration with StrictLogging {
+object Boot extends App with Configuration with Loggers with StrictLogging {
   val initMapping: Mapping = Mapping(List())
   logger.info("Starting quartermaster storage service")
   try {
