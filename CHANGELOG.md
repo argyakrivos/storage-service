@@ -1,4 +1,13 @@
 # Change log
+## 0.2.2 ([#15](https://git.mobcastdev.com/Quartermaster/storage-service/pull/15) 2015-01-15 11:00:36)
+
+Added the Loggers to get graylog working
+
+### Patch
+
+- Added graylog support by mixing in the `Loggers` trait
+- Fix for [MV-303](http://jira.blinkbox.local/jira/browse/MV-303)
+
 ## 0.2.1 ([#14](https://git.mobcastdev.com/Quartermaster/storage-service/pull/14) 2015-01-14 17:22:27)
 
 Swagger file cleanup
