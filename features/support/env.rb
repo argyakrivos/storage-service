@@ -1,4 +1,7 @@
-require 'cucumber/blinkbox/environment'
+require 'cucumber/blinkbox'
+require 'cucumber/rest'
+require 'httpclient'
+require 'httpclient/capture'
 
 TEST_CONFIG['server'] = ENV['SERVER'] || 'local'
 TEST_CONFIG['debug'] = !!(ENV["DEBUG"] =~ /^on|true$/i)
