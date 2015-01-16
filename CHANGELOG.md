@@ -1,4 +1,10 @@
 # Change log
+## 0.2.3 ([#16](https://git.mobcastdev.com/Quartermaster/storage-service/pull/16) 2015-01-16 13:52:39)
+
+MV-336 Add in formats for tokens and labels. Add in 200 and 400 cases
+
+Patch
+
 ## 0.2.2 ([#15](https://git.mobcastdev.com/Quartermaster/storage-service/pull/15) 2015-01-15 11:00:36)
 
 Added the Loggers to get graylog working
