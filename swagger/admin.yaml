@@ -1,42 +1,50 @@
+---
 swagger: "2.0"
+
 info:
   title: Storage Service
-  description: "Service-facing REST API for storage of resources on the cloud."
+  description: "Service-facing REST API for storage of resources on the cloud"
   version: 2.0.0
+
 basePath: /
+
 produces:
   -  application/vnd.blinkbox.books.ingestion.storageservice.v2+json
+
 paths:
   /mappings:
     get:
-      summary: Lookup virtual URI mapping
+      summary: Get virtual URI mapping document
       tags:
         - Mapping
       responses:
         200:
-          description: "Mapping"
+          description: "Mapping file successfully read from disk and returned"
           schema:
             $ref: '#/definitions/MappingFile'
 
   /resources/{token}:
     get:
       summary: Information about a specific resource
-      description: "Get the details about the particular resource and where it is stored."
+      description: "Get the details about the particular resource and where it is stored"
       tags:
-        - Mapping
+        - Resource
       parameters:
         - name: token
           in: path
           type: string
           required: true
           description: "The virtual URL being looked up"
+          format: "/^bbbmap:[a-zA-Z0-9]+:/"
       responses:
         200:
           description: "Details of this resource (given that at least 1 provider has this data)"
           schema:
-            $ref: '#/definitions/ProviderStatusResponse'
+            $ref: '#/definitions/ResourceStatusMessage'
+        400:
+          description: "An invalid token value was used"
         404:
-          description: "The specified resource cannot be found on any of the associated providers."
+          description: "The token represents an unknown asset. (Neither uploading to or already on any of the associated storage providers)"
           examples:
             application/vnd.blinkbox.books.ingestion.storageservice.v2+json: |
               {
@@ -56,18 +64,23 @@ paths:
           type: string
           description: "The grouping the client wishes to post the resource into"
           required: true
+          format: "/^[a-zA-Z0-9]+$/"
         - name: data
           in : formData
           type: file
           description: "The blob of the resource"
           required: true
       tags:
-        - Mapping
+        - Resource
       responses:
+        200:
+          description: "An existing copy of this resource already exists in all target storage locations"
+          schema:
+            $ref: '#/definitions/ResourceStatusMessage'
         202:
           description: "Resource received and upload request accepted. Storage on remote systems will continue in the background."
           schema:
-            $ref: '#/definitions/ProviderStatusResponse'
+            $ref: '#/definitions/ResourceStatusMessage'
         400:
           examples:
             application/vnd.blinkbox.books.ingestion.storageservice.v2+json: |
@@ -102,8 +115,8 @@ definitions:
             description: "A URL with templated sections in sprintf form eg. `https://storage.example.com/bucket/%{variableName}` where `variableName` is a named group catured in the regular expression key above."
             type: string
 
-  ProviderStatusResponse:
-    description: "progress status of a resource's storage"
+  ResourceStatusMessage:
+    description: "Progress status of a resource's storage"
     required:
       - token
       - label
@@ -111,14 +124,14 @@ definitions:
     additionalProperties: false
     properties:
       token:
-        description: "a token which represents mapped resources in the cloud"
+        description: "A token which represents mapped resources in the cloud"
         type: string
       label:
-        description: "allows you to group assets, define some attributes of how they are stored"
+        description: "Allows you to group assets, define some attributes of how they are stored"
         type: string
       providers:
         type: object
-        description: "a map of storage requests ->complete boolean"
+        description: "A map of storage requests->complete boolean"
         additionalProperties:
           description: "Details of the resource as stored in the various providers"
           type: object
@@ -127,14 +140,14 @@ definitions:
           additionalProperties: false
           properties:
             available:
-              description: "Can the resource be found at this location"?
+              description: "Can the resource be found at this location?"
               type: boolean
             eta:
               description: "Number of seconds until upload is expected to complete, absent if complete or not started"
               type: number
               minimum: 0
             percentComplete:
-              description: "Upload complete percentage as fraction of 1, absent if complete or not started"
+              description: "Upload complete percentage as fraction of 1, 1 if complete or 0 if not started"
               type: number
               minimum: 0
               maximum: 1
