@@ -40,7 +40,7 @@ paths:
         200:
           description: "Details of this resource (given that at least 1 provider has this data)"
           schema:
-            $ref: '#/definitions/ResourceStatusResponse'
+            $ref: '#/definitions/ResourceStatusMessage'
         400:
           description: "An invalid token value was used"
         404:
@@ -76,11 +76,11 @@ paths:
         200:
           description: "An existing copy of this resource already exists in all target storage locations"
           schema:
-            $ref: '#/definitions/ResourceStatusResponse'
+            $ref: '#/definitions/ResourceStatusMessage'
         202:
           description: "Resource received and upload request accepted. Storage on remote systems will continue in the background."
           schema:
-            $ref: '#/definitions/ResourceStatusResponse'
+            $ref: '#/definitions/ResourceStatusMessage'
         400:
           examples:
             application/vnd.blinkbox.books.ingestion.storageservice.v2+json: |
@@ -115,7 +115,7 @@ definitions:
             description: "A URL with templated sections in sprintf form eg. `https://storage.example.com/bucket/%{variableName}` where `variableName` is a named group catured in the regular expression key above."
             type: string
 
-  ResourceStatusResponse:
+  ResourceStatusMessage:
     description: "Progress status of a resource's storage"
     required:
       - token
