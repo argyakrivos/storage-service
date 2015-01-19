@@ -2,6 +2,7 @@ require 'cucumber/blinkbox'
 require 'cucumber/rest'
 require 'httpclient'
 require 'httpclient/capture'
+require 'securerandom'
 require 'set'
 
 TEST_CONFIG['server'] = ENV['SERVER'] || 'local'

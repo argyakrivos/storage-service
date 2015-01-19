@@ -1,2 +1,9 @@
 file:
-  exists in storage: "/mnt/m2/storage/TODOANDSORTOUTWITHOPS"
+  exists in storage:
+    path: "/mnt/m2/storage/TODOANDSORTOUTWITHOPS"
+    contents: "This is a dummy file."
+
+label:
+  exists: "testfile"
+  does not exist: "doesNotExist"
+  is invalid: "is£invalid"
