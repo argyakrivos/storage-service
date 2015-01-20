@@ -1,4 +1,10 @@
 # Change log
+## 0.2.4 ([#17](https://git.mobcastdev.com/Quartermaster/storage-service/pull/17) 2015-01-20 11:04:40)
+
+Functional tests
+
+Patch
+
 ## 0.2.3 ([#16](https://git.mobcastdev.com/Quartermaster/storage-service/pull/16) 2015-01-16 13:52:39)
 
 MV-336 Add in formats for tokens and labels. Add in 200 and 400 cases
