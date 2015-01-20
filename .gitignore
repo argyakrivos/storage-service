@@ -20,3 +20,5 @@ atlassian-ide-plugin.xml
 /.history
 /.ensime_cache/
 mappings.json
+# Ruby specific
+Gemfile.lock
