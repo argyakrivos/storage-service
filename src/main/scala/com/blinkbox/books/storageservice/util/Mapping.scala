@@ -26,12 +26,13 @@ class LocalStorageDao(localStorageConfig: NamedStorageConfig, label: String, ext
 
   val rootPath = localStorageConfig.storagePath
 
-  override def createToken(path: String): Token = Token(s"""bbbmap:testfile:file:/$path""")
+  override def createToken(path: String): Token = Token(s"""bbbmap:testfile:file://$path""")
 
   override def write(bytes: Array[Byte], path: String): Future[Token] = write(bytes, Paths.get(path))
 
   def write(bytes: Array[Byte], path: Path): Future[Token] = Future {
     assert(!path.isAbsolute)
+
     val root = path.getFileSystem.getPath(rootPath)
     val absolutePath = root.resolve(path)
 
@@ -45,7 +46,9 @@ class LocalStorageDao(localStorageConfig: NamedStorageConfig, label: String, ext
       None
     } else {
       val path = token.getFilePath
-      if (Files.exists(path) && Files.isReadable(path)) {
+      val root = path.getFileSystem.getPath(rootPath)
+
+      if (path.startsWith(root) && Files.exists(path) && Files.isReadable(path)) {
         Some(ProviderStatus(token, label, Map("available" -> true)))
       } else {
         None

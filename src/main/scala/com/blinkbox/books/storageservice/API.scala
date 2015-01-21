@@ -6,7 +6,7 @@ import akka.actor._
 import akka.util.Timeout
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.logging.{DiagnosticExecutionContext, Loggers}
-import com.blinkbox.books.spray.{Directives => CommonDirectives, HttpServer, HealthCheckHttpService, v2}
+import com.blinkbox.books.spray.{Directives => CommonDirectives, HealthCheckHttpService, HttpServer, v2}
 import com.blinkbox.books.storageservice.util.{DaoMappingUtils, Token}
 import com.typesafe.scalalogging.StrictLogging
 import org.json4s.MappingException
@@ -19,9 +19,9 @@ import spray.httpx.unmarshalling._
 import spray.routing._
 import spray.util.NotImplementedException
 
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContext, Future}
 
-case class QuarterMasterRoutes(config: AppConfig, qms: QuarterMasterService, actorRefFactory: ActorRefFactory) extends HttpService
+case class QuarterMasterRoutes(config: AppConfig, qms: QuarterMasterService, actorRefFactory: ActorRefFactory)(implicit context: ExecutionContext) extends HttpService
 with CommonDirectives with BasicUnmarshallers with v2.JsonSupport with StrictLogging {
   val mappingUri = "mappings"
   val refreshUri = "refresh"
@@ -35,7 +35,7 @@ with CommonDirectives with BasicUnmarshallers with v2.JsonSupport with StrictLog
     }
   }
 
-  val resourcesRoute = {
+  val setResourcesRoute = {
     implicit val formUnmarshaller = FormDataUnmarshallers.multipartFormDataUnmarshaller(strict = false)
     implicit def textUnmarshaller[T: Manifest]: Unmarshaller[T] =
       Unmarshaller[T](MediaTypes.`text/plain`) {
@@ -50,20 +50,24 @@ with CommonDirectives with BasicUnmarshallers with v2.JsonSupport with StrictLog
       post {
         entity(as[MultipartFormData]) { (form) =>
           val data = new MultipartFormField("data", form.get("data")).as[Array[Byte]]
-          val label= new MultipartFormField("label", form.get("label")).as[String]
+          val label = new MultipartFormField("label", form.get("label")).as[String]
           val storeResult = for {
             data_result <- data.right
             label_result <- label.right
-          } yield  qms.storeAsset(label_result, data_result)
-
+          } yield qms.storeAsset(label_result, data_result)
           storeResult match {
-            case Right((token)) => complete(StatusCodes.Accepted)
-            case Left(e) => complete(InternalServerError, e)
+            case Right(result) =>
+              onSuccess(result)(complete(Accepted, _))
+            case Left(e) =>
+              complete(InternalServerError, e)
           }
         }
       }
-    } ~
-    path(resourcesUri/ Segment) { token =>
+    }
+  }
+  
+  val getResourcesRoute = {
+    path(resourcesUri/ Rest) { token =>
       get {
         complete(qms.getTokenStatus(Token(token)))
       }
@@ -83,7 +87,7 @@ with CommonDirectives with BasicUnmarshallers with v2.JsonSupport with StrictLog
     handleExceptions(exceptionHandler) {
       neverCache {
         rootPath(Path("/")) {
-          mappingRoute ~ resourcesRoute
+          mappingRoute ~ setResourcesRoute ~ getResourcesRoute
         }
       }
     }
