@@ -1,0 +1,9 @@
+[
+  {
+    "label": "testfile",
+    "extractor": "^bbbmap:test:(?<path>.+)$",
+    "providers": {
+      "filesystem": "file://%{path}"
+    }
+  }
+]

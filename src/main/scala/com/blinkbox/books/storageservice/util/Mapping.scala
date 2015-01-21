@@ -22,7 +22,7 @@ abstract class Dao(val label: String, val extractor: String, val providers: Map[
   def uploadStatusUpdate(token: Token): Option[ProviderStatus]
 }
 
-class LocalStorageDao(localStorageConfig: NamedStorageConfig, label: String, extractor: String, providers: Map[String, String]) extends Dao(label, extractor, providers) {
+case class LocalStorageDao(localStorageConfig: NamedStorageConfig, override val label: String, override val extractor: String, override val providers: Map[String, String]) extends Dao(label, extractor, providers) {
 
   val rootPath = localStorageConfig.storagePath
 
