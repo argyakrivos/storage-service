@@ -24,7 +24,6 @@ import scala.concurrent.{ExecutionContext, Future}
 case class QuarterMasterRoutes(config: AppConfig, qms: QuarterMasterService, actorRefFactory: ActorRefFactory)(implicit context: ExecutionContext) extends HttpService
 with CommonDirectives with BasicUnmarshallers with v2.JsonSupport with StrictLogging {
   val mappingUri = "mappings"
-  val refreshUri = "refresh"
   val resourcesUri = "resources"
   val appConfig = config
   val localUrl = appConfig.api.localUrl
@@ -86,7 +85,7 @@ with CommonDirectives with BasicUnmarshallers with v2.JsonSupport with StrictLog
   val routes = {
     handleExceptions(exceptionHandler) {
       neverCache {
-        rootPath(Path("/")) {
+        rootPath(Path(localUrl.getPath)) {
           mappingRoute ~ setResourcesRoute ~ getResourcesRoute
         }
       }
