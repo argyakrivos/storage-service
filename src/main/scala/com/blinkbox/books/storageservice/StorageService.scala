@@ -8,7 +8,7 @@ case class TokenNotFound(code: String, providers: Array[String])
 case class ProviderStatus(token: Token, label: String, providers: Map[String, Any])
 case class UnknownDaoForLabel(message: String) extends Exception(message)
 
-class QuarterMasterService(config: AppConfig)(implicit executor: ExecutionContext) extends StoreMappingUtils with StrictLogging {
+class StorageService(config: AppConfig)(implicit executor: ExecutionContext) extends StoreMappingUtils with StrictLogging {
 
   override val appConfig: AppConfig = config
 
@@ -17,7 +17,7 @@ class QuarterMasterService(config: AppConfig)(implicit executor: ExecutionContex
 
   def storeAsset(label: String, bytes: Array[Byte]): Future[Option[ProviderStatus]] = {
     daos.find(_.label == label) match {
-      case Some(dao) => dao.write(bytes, s"$label/${QuarterMasterService.createFileName(bytes)}").map(getTokenStatus)
+      case Some(dao) => dao.write(bytes, s"$label/${StorageService.createFileName(bytes)}").map(getTokenStatus)
       case _ => Future.failed(new UnknownDaoForLabel(s"Could not find DAO for label $label"))
     }
   }
@@ -26,7 +26,7 @@ class QuarterMasterService(config: AppConfig)(implicit executor: ExecutionContex
     daos.map(_.uploadStatusUpdate(token)).find(_.isDefined).flatten
 }
 
-object QuarterMasterService {
+object StorageService {
   val md = java.security.MessageDigest.getInstance("MD5")
   def createFileName(bytes: Array[Byte]): String = {
     md.digest(bytes).map(0xFF & _).map { "%02x".format(_) }.foldLeft(""){_ + _}

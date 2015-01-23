@@ -16,13 +16,13 @@ import spray.testkit.ScalatestRouteTest
 
 import scala.concurrent.Future
 
-class QuarterMasterApiTest extends FlatSpec with ScalatestRouteTest with Matchers with MockitoSyrup with v2.JsonSupport {
+class StorageServiceApiTest extends FlatSpec with ScalatestRouteTest with Matchers with MockitoSyrup with v2.JsonSupport {
 
   behavior of "The QuarterMasterApi"
 
   it should "produce the mapping files" in new TestFixture {
     val testMappings = Array(CommonMapping("test", "bbb:test:test", Map("test" -> "test")))
-    when(quarterMasterService.mappings).thenReturn(testMappings)
+    when(storageService.mappings).thenReturn(testMappings)
     Get("/mappings") ~> routes ~> check {
       val response = responseAs[Array[CommonMapping]]
       assert(status == StatusCodes.OK)
@@ -34,7 +34,7 @@ class QuarterMasterApiTest extends FlatSpec with ScalatestRouteTest with Matcher
   it should "get an existing resource if it exists" in new TestFixture {
     val token = Token("bbbmap:testfile:file:///some/location")
     val providerStatus = ProviderStatus(token, "label", Map("available" -> true))
-    when(quarterMasterService.getTokenStatus(token)).thenReturn(Some(providerStatus))
+    when(storageService.getTokenStatus(token)).thenReturn(Some(providerStatus))
     Get(s"/resources/${token.token}") ~> routes ~> check {
       assert(status == StatusCodes.OK)
       assert(responseAs[ProviderStatus] == providerStatus)
@@ -43,7 +43,7 @@ class QuarterMasterApiTest extends FlatSpec with ScalatestRouteTest with Matcher
 
   it should "return 404 for a non existing resource" in new TestFixture {
     val token = Token("bbbmap:testfile:file:///some/location")
-    when(quarterMasterService.getTokenStatus(token)).thenReturn(None)
+    when(storageService.getTokenStatus(token)).thenReturn(None)
     Get(s"/resources/${token.token}") ~> routes ~> check {
       assert(status == StatusCodes.NotFound)
     }
@@ -55,7 +55,7 @@ class QuarterMasterApiTest extends FlatSpec with ScalatestRouteTest with Matcher
     val label = "testfile"
     val token = Token("bbbmap:testfile:file:///some/location")
     val providerStatus = ProviderStatus(token, "label", Map("available" -> true))
-    when(quarterMasterService.storeAsset(label, data)).thenReturn(Future(Some(providerStatus)))
+    when(storageService.storeAsset(label, data)).thenReturn(Future(Some(providerStatus)))
     Post(s"/resources", MultipartFormData(Map("label" -> BodyPart(label), "data" -> BodyPart(data)))) ~> routes ~> check {
       assert(status == StatusCodes.Accepted)
     }
@@ -64,12 +64,12 @@ class QuarterMasterApiTest extends FlatSpec with ScalatestRouteTest with Matcher
   class TestFixture extends HttpService {
     val apiConfig = mock[ApiConfig]
     val appConfig = mock[AppConfig]
-    val quarterMasterService = mock[QuarterMasterService]
+    val storageService = mock[StorageService]
     when(apiConfig.localUrl).thenReturn(new URL("http://localhost"))
     when(appConfig.api).thenReturn(apiConfig)
 
     override implicit def actorRefFactory: ActorRefFactory = ActorSystem("quarter-master-test")
 
-    val routes = QuarterMasterRoutes(appConfig, quarterMasterService, actorRefFactory).routes
+    val routes = StorageServiceRoutes(appConfig, storageService, actorRefFactory).routes
   }
 }

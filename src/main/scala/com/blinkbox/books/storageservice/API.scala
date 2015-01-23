@@ -20,7 +20,7 @@ import spray.util.NotImplementedException
 
 import scala.concurrent.ExecutionContext
 
-case class QuarterMasterRoutes(appConfig: AppConfig, qms: QuarterMasterService, actorRefFactory: ActorRefFactory)(implicit context: ExecutionContext) extends HttpService
+case class StorageServiceRoutes(appConfig: AppConfig, qms: StorageService, actorRefFactory: ActorRefFactory)(implicit context: ExecutionContext) extends HttpService
   with v2.JsonSupport with StrictLogging {
   val mappingUri = "mappings"
   val resourcesUri = "resources"
@@ -89,13 +89,13 @@ case class QuarterMasterRoutes(appConfig: AppConfig, qms: QuarterMasterService, 
   }
 }
 
-class WebService(appConfig: AppConfig, qms: QuarterMasterService) extends HttpServiceActor {
+class WebService(appConfig: AppConfig, qms: StorageService) extends HttpServiceActor {
   implicit val executionContext = DiagnosticExecutionContext(actorRefFactory.dispatcher)
   val healthService = new HealthCheckHttpService {
     override implicit val actorRefFactory = WebService.this.actorRefFactory
     override val basePath = Path./
   }
-  val routes = new QuarterMasterRoutes(appConfig, qms, actorRefFactory).routes
+  val routes = new StorageServiceRoutes(appConfig, qms, actorRefFactory).routes
 
   override def receive: Actor.Receive = runRoute(routes ~ healthService.routes)
 }
@@ -107,7 +107,7 @@ object Boot extends App with Configuration with Loggers with StrictLogging {
   implicit val system = ActorSystem("storage-service", config)
   implicit val executionContext = DiagnosticExecutionContext(system.dispatcher)
   implicit val timeout = Timeout(appConfig.api.timeout)
-  val service = system.actorOf(Props(new WebService(appConfig, new QuarterMasterService(appConfig))))
+  val service = system.actorOf(Props(new WebService(appConfig, new StorageService(appConfig))))
   val localUrl = appConfig.api.localUrl
   HttpServer(Http.Bind(service, localUrl.getHost, port = localUrl.getPort))
 }
