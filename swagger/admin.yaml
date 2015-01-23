@@ -9,7 +9,7 @@ info:
 basePath: /
 
 produces:
-  -  application/vnd.blinkbox.books.ingestion.storageservice.v2+json
+  -  application/vnd.blinkbox.books.v2+json
 
 paths:
   /mappings:
@@ -46,7 +46,7 @@ paths:
         404:
           description: "The token represents an unknown asset. (Neither uploading to or already on any of the associated storage providers)"
           examples:
-            application/vnd.blinkbox.books.ingestion.storageservice.v2+json: |
+            application/vnd.blinkbox.books.v2+json: |
               {
                 "code": "NotFound",
                 "providers": ["azure-alpha", "gluster"]
@@ -83,7 +83,7 @@ paths:
             $ref: '#/definitions/ResourceStatusMessage'
         400:
           examples:
-            application/vnd.blinkbox.books.ingestion.storageservice.v2+json: |
+            application/vnd.blinkbox.books.v2+json: |
               {
                 "code": "InvalidParameters"
               }
