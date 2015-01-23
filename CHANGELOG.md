@@ -1,4 +1,13 @@
 # Change log
+## 0.2.5 ([#19](https://git.mobcastdev.com/Quartermaster/storage-service/pull/19) 2015-01-23 10:26:06)
+
+Update swagger + cukes
+
+### Bug fix
+
+- Updated the Swagger documents to reflect the use of the generic v2 json accept headers
+- Updated the cukes to reflect the change in the swagger document.
+
 ## 0.2.4 ([#17](https://git.mobcastdev.com/Quartermaster/storage-service/pull/17) 2015-01-20 11:04:40)
 
 Functional tests
