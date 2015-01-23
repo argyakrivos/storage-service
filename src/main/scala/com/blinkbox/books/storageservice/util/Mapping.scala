@@ -16,13 +16,13 @@ sealed abstract class UploadStatus(val progress: Integer, val eta: Integer)
 case object NotStarted extends UploadStatus(0, 0)
 case object Finished extends UploadStatus(100, 0)
 
-abstract class Dao(val label: String, val extractor: String, val providers: Map[String,String]) {
+abstract class Store(val label: String, val extractor: String, val providers: Map[String,String]) {
   def createToken(path: String): Token
   def write(bytes: Array[Byte], path: String): Future[Token]
   def uploadStatusUpdate(token: Token): Option[ProviderStatus]
 }
 
-case class LocalStorageDao(localStorageConfig: NamedStorageConfig, override val label: String, override val extractor: String, override val providers: Map[String, String]) extends Dao(label, extractor, providers) {
+case class LocalStorageStore(localStorageConfig: NamedStorageConfig, override val label: String, override val extractor: String, override val providers: Map[String, String]) extends Store(label, extractor, providers) {
 
   val rootPath = localStorageConfig.storagePath
 
@@ -48,26 +48,28 @@ case class LocalStorageDao(localStorageConfig: NamedStorageConfig, override val 
       val path = token.getFilePath
       val root = path.getFileSystem.getPath(rootPath)
 
-      if (path.startsWith(root) && Files.exists(path) && Files.isReadable(path)) {
+      if (isValidPath(path, root)) {
         Some(ProviderStatus(token, label, Map("available" -> true)))
       } else {
         None
       }
     }
   }
+
+  def isValidPath(path: Path, root: Path): Boolean = path.startsWith(root) && Files.exists(path) && Files.isReadable(path)
 }
 
 case class CommonMapping(label: String, extractor: String, providers: Map[String, String])
 
-trait DaoMappingUtils extends v2.JsonSupport {
+trait StoreMappingUtils extends v2.JsonSupport {
   val appConfig: AppConfig
 
   def mappings(mappingFileLocation: String): Array[CommonMapping] =
     read[Array[CommonMapping]](Source.fromFile(mappingFileLocation).mkString)
 
-  def mappingsToDao(mappings:Array[CommonMapping]): Array[Dao] = {
-    def labelToDao(mapping: CommonMapping): Dao = mapping.label match {
-      case "testfile" => new LocalStorageDao(appConfig.localStorageConfig, mapping.label, mapping.extractor, mapping.providers)
+  def mappingsToDao(mappings:Array[CommonMapping]): Array[Store] = {
+    def labelToDao(mapping: CommonMapping): Store = mapping.label match {
+      case "testfile" => new LocalStorageStore(appConfig.localStorageConfig, mapping.label, mapping.extractor, mapping.providers)
       case _ => throw new UnsupportedOperationException(s"The label ${mapping.label} is currently not supported by the StorageService")
     }
 

@@ -3,7 +3,7 @@ package com.blinkbox.books.storageservice
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Paths, Files}
 
-import com.blinkbox.books.storageservice.util.{LocalStorageDao, Token}
+import com.blinkbox.books.storageservice.util.{LocalStorageStore, Token}
 import com.google.common.jimfs.Jimfs
 import org.mockito.Mockito._
 import org.scalatest.concurrent.ScalaFutures
@@ -60,7 +60,7 @@ class DaoTests extends FlatSpec with Matchers with MockitoSugar with ScalaFuture
     val extractor = "^bbbmap:testfile:(?<path>.+)$"
     val providers = Map("filesytem" -> "file://${path}")
     when(localStorageConfig.storagePath).thenReturn("/mnt/storage")
-    val localStorageDao = new LocalStorageDao(localStorageConfig, label, extractor, providers)
+    val localStorageDao = new LocalStorageStore(localStorageConfig, label, extractor, providers)
     val sampleBinaryFile = Files.readAllBytes(Paths.get(getClass.getResource("/sample_binary.jpg").getPath))
 
     // Stubbing token so that it uses JimFs paths

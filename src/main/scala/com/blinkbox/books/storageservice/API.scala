@@ -1,31 +1,29 @@
 package com.blinkbox.books.storageservice
 
-import java.lang.reflect.InvocationTargetException
-
 import akka.actor._
 import akka.util.Timeout
 import com.blinkbox.books.config.Configuration
 import com.blinkbox.books.logging.{DiagnosticExecutionContext, Loggers}
-import com.blinkbox.books.spray.{Directives => CommonDirectives, HealthCheckHttpService, HttpServer, v2}
-import com.blinkbox.books.storageservice.util.{DaoMappingUtils, Token}
+import com.blinkbox.books.spray.Directives._
+import com.blinkbox.books.spray.{HealthCheckHttpService, HttpServer, v2}
+import com.blinkbox.books.spray.v2.Implicits.throwableMarshaller
+import com.blinkbox.books.storageservice.util.{StoreMappingUtils, Token}
 import com.typesafe.scalalogging.StrictLogging
-import org.json4s.MappingException
-import org.json4s.jackson.Serialization
 import spray.can.Http
 import spray.http.StatusCodes._
 import spray.http.Uri.Path
 import spray.http._
 import spray.httpx.unmarshalling._
 import spray.routing._
+import spray.routing.directives.DebuggingDirectives
 import spray.util.NotImplementedException
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.ExecutionContext
 
-case class QuarterMasterRoutes(config: AppConfig, qms: QuarterMasterService, actorRefFactory: ActorRefFactory)(implicit context: ExecutionContext) extends HttpService
-with CommonDirectives with BasicUnmarshallers with v2.JsonSupport with StrictLogging {
+case class QuarterMasterRoutes(appConfig: AppConfig, qms: QuarterMasterService, actorRefFactory: ActorRefFactory)(implicit context: ExecutionContext) extends HttpService
+  with v2.JsonSupport with StrictLogging {
   val mappingUri = "mappings"
   val resourcesUri = "resources"
-  val appConfig = config
   val localUrl = appConfig.api.localUrl
 
   val mappingRoute = path(mappingUri) {
@@ -36,29 +34,27 @@ with CommonDirectives with BasicUnmarshallers with v2.JsonSupport with StrictLog
 
   val setResourcesRoute = {
     implicit val formUnmarshaller = FormDataUnmarshallers.multipartFormDataUnmarshaller(strict = false)
-    implicit def textUnmarshaller[T: Manifest]: Unmarshaller[T] =
-      Unmarshaller[T](MediaTypes.`text/plain`) {
-        case x: HttpEntity.NonEmpty =>
-          try Serialization.read[T](x.asString(defaultCharset = HttpCharsets.`UTF-8`))
-          catch {
-            case MappingException("unknown error", ite: InvocationTargetException) => throw ite.getCause
-          }
-      }
 
     path(resourcesUri) {
       post {
-        entity(as[MultipartFormData]) { (form) =>
-          val data = new MultipartFormField("data", form.get("data")).as[Array[Byte]]
-          val label = new MultipartFormField("label", form.get("label")).as[String]
+        entity(as[MultipartFormData]) { form =>
+          val extractor = FormFieldExtractor(form)
+          val data = extractor.field("data").as[Array[Byte]]
+          val label = extractor.field("label").as[String]
+
           val storeResult = for {
-            data_result <- data.right
-            label_result <- label.right
-          } yield qms.storeAsset(label_result, data_result)
+            d <- data.right
+            l <- label.right
+          } yield
+            qms.storeAsset(l, d)
           storeResult match {
             case Right(result) =>
               onSuccess(result)(complete(Accepted, _))
             case Left(e) =>
-              complete(InternalServerError, e)
+              e match {
+                case ContentExpected => complete(BadRequest, "Please provide content for the fields label and data")
+                case _ => complete(InternalServerError)
+              }
           }
         }
       }
@@ -66,7 +62,7 @@ with CommonDirectives with BasicUnmarshallers with v2.JsonSupport with StrictLog
   }
   
   val getResourcesRoute = {
-    path(resourcesUri/ Rest) { token =>
+    path(resourcesUri / Rest) { token =>
       get {
         complete(qms.getTokenStatus(Token(token)))
       }
@@ -75,18 +71,18 @@ with CommonDirectives with BasicUnmarshallers with v2.JsonSupport with StrictLog
 
   private def exceptionHandler = ExceptionHandler {
     case e: NotImplementedException =>
-      logger.warn("Unhandled error, no Storage Providers Found", e)
-      uncacheable(BadRequest, "code: UnknownLabel")
+      failWith(new IllegalRequestException(BadRequest, "Unhandled error, no Storage Providers Found"))
     case e: IllegalArgumentException =>
-      logger.warn("Unhandled error:  Bad Request", e)
-      uncacheable(BadRequest, "code: Bad Request")
+      failWith(new IllegalRequestException(BadRequest, e.getMessage))
   }
 
-  val routes = {
+  val routes = monitor(logger, throwableMarshaller){
     handleExceptions(exceptionHandler) {
       neverCache {
-        rootPath(Path(localUrl.getPath)) {
-          mappingRoute ~ setResourcesRoute ~ getResourcesRoute
+        DebuggingDirectives.logRequest("get-user") {
+          rootPath(Path(localUrl.getPath)) {
+            mappingRoute ~ setResourcesRoute ~ getResourcesRoute
+          }
         }
       }
     }
@@ -95,10 +91,8 @@ with CommonDirectives with BasicUnmarshallers with v2.JsonSupport with StrictLog
 
 class WebService(appConfig: AppConfig, qms: QuarterMasterService) extends HttpServiceActor {
   implicit val executionContext = DiagnosticExecutionContext(actorRefFactory.dispatcher)
-  val actorRefFac = actorRefFactory
   val healthService = new HealthCheckHttpService {
-    override implicit def actorRefFactory: ActorContext = actorRefFac
-
+    override implicit val actorRefFactory = WebService.this.actorRefFactory
     override val basePath = Path./
   }
   val routes = new QuarterMasterRoutes(appConfig, qms, actorRefFactory).routes
@@ -106,15 +100,13 @@ class WebService(appConfig: AppConfig, qms: QuarterMasterService) extends HttpSe
   override def receive: Actor.Receive = runRoute(routes ~ healthService.routes)
 }
 
-object Boot extends App with Configuration with Loggers with StrictLogging with DaoMappingUtils {
-  override val appConfig = AppConfig(config)
+object Boot extends App with Configuration with Loggers with StrictLogging {
+  val appConfig = AppConfig(config)
   logger.info("Starting QuarterMaster StorageServer")
   
   implicit val system = ActorSystem("storage-service", config)
   implicit val executionContext = DiagnosticExecutionContext(system.dispatcher)
-  implicit val timeout = Timeout(5000)
-  val maps = mappings(appConfig.mapping.path)
-  val daos = mappingsToDao(maps)
+  implicit val timeout = Timeout(appConfig.api.timeout)
   val service = system.actorOf(Props(new WebService(appConfig, new QuarterMasterService(appConfig))))
   val localUrl = appConfig.api.localUrl
   HttpServer(Http.Bind(service, localUrl.getHost, port = localUrl.getPort))

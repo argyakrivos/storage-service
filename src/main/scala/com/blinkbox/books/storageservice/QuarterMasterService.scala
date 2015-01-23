@@ -1,6 +1,6 @@
 package com.blinkbox.books.storageservice
 
-import com.blinkbox.books.storageservice.util.{CommonMapping, DaoMappingUtils, Token}
+import com.blinkbox.books.storageservice.util.{CommonMapping, StoreMappingUtils, Token}
 import com.typesafe.scalalogging.StrictLogging
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -8,7 +8,7 @@ case class TokenNotFound(code: String, providers: Array[String])
 case class ProviderStatus(token: Token, label: String, providers: Map[String, Any])
 case class UnknownDaoForLabel(message: String) extends Exception(message)
 
-class QuarterMasterService(config: AppConfig)(implicit executor: ExecutionContext) extends DaoMappingUtils with StrictLogging {
+class QuarterMasterService(config: AppConfig)(implicit executor: ExecutionContext) extends StoreMappingUtils with StrictLogging {
 
   override val appConfig: AppConfig = config
 
@@ -16,7 +16,7 @@ class QuarterMasterService(config: AppConfig)(implicit executor: ExecutionContex
   val daos = mappingsToDao(mappings)
 
   def storeAsset(label: String, bytes: Array[Byte]): Future[Option[ProviderStatus]] = {
-    daos.find(d => d.label == label) match {
+    daos.find(_.label == label) match {
       case Some(dao) => dao.write(bytes, s"$label/${QuarterMasterService.createFileName(bytes)}").map(getTokenStatus)
       case _ => Future.failed(new UnknownDaoForLabel(s"Could not find DAO for label $label"))
     }
